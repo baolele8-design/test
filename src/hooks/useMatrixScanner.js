@@ -12,7 +12,6 @@ export default function useMatrixScanner({
   
   const prevScannedSigRef = useRef('');
 
-  // Refs để giữ state mới nhất trong setInterval
   const liveCapitalRef = useRef(liveCapital);
   const autoDataRef = useRef(autoData);
   const mvrvZScoreRef = useRef(mvrvZScore);
@@ -29,7 +28,6 @@ export default function useMatrixScanner({
   useEffect(() => { dynamicPoolRef.current = dynamicPool; }, [dynamicPool]);
   useEffect(() => { dynamicMinNotionalsRef.current = dynamicMinNotionals; }, [dynamicMinNotionals]);
 
-  // Động cơ Scanner chính
   useEffect(() => {
     let isMounted = true;
 
@@ -64,7 +62,6 @@ export default function useMatrixScanner({
                 fetchWithTimeout(`/api/binance?path=/fapi/v1/premiumIndex&t=${ts}`, 10000)
             ]);
 
-            // Dùng currentPool để đồng bộ hoàn toàn với danh sách coin động
             currentPool.forEach(sym => {
                 const book = Array.isArray(allBook) ? allBook.find(b => b.symbol === sym) : null;
                 const prem = Array.isArray(allPrem) ? allPrem.find(p => p.symbol === sym) : null;
@@ -72,18 +69,21 @@ export default function useMatrixScanner({
                 if (book && prem) {
                     const ask = parseFloat(book.askPrice);
                     const bid = parseFloat(book.bidPrice);
+                    const bidQty = parseFloat(book.bidQty || 0);
+                    const askQty = parseFloat(book.askQty || 0);
                     realtimeMetrics[sym] = {
                         spread: bid > 0 ? ((ask - bid) / bid) * 100 : 0.05,
+                        obi: (bidQty + askQty > 0) ? bidQty / (bidQty + askQty) : 0.5,
                         funding: parseFloat(prem.lastFundingRate || 0)
                     };
                 } else {
                     const defaultSpread = sym.includes('BTC') ? 0.01 : (sym.includes('ETH') || sym.includes('SOL') ? 0.02 : 0.05);
                     const defaultFunding = sym.includes('BTC') || sym.includes('ETH') ? 0.0001 : 0.0002;
-                    realtimeMetrics[sym] = { spread: defaultSpread, funding: defaultFunding };
+                    realtimeMetrics[sym] = { spread: defaultSpread, obi: 0.5, funding: defaultFunding };
                 }
             });
         } catch (e) {
-            currentPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, funding: 0.0002 }; });
+            currentPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, obi: 0.5, funding: 0.0002 }; });
         }
 
         const fetchTasks = [];
@@ -158,6 +158,7 @@ export default function useMatrixScanner({
             }
             const bollinger20 = QuantMath.bollinger(closes, 20, 2.0);
             const bbwRank = QuantMath.percentileRank(bollinger20.bbw, bbwHist.slice(-100)); 
+            const bbwSlopeLocal = bbwHist.length >= 5 ? ((bollinger20.bbw - bbwHist[bbwHist.length - 5]) / (bbwHist[bbwHist.length - 5] || 1)) * 100 : 0;
             
             const atrHistLocal = [];
             for (let i = 14; i < closes.length; i++) {
@@ -221,6 +222,7 @@ export default function useMatrixScanner({
             
             const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
             const realFunding = realtimeMetrics[targetSymbol]?.funding || 0.0002;
+            const localObi = realtimeMetrics[targetSymbol]?.obi || 0.5;
             
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
@@ -273,6 +275,10 @@ export default function useMatrixScanner({
             if (checkS7) embeddedScore += w.s7;
             if (checkS8) embeddedScore += w.s8;
             
+            // NEW SCALING SYNERGIES
+            if (l2 === 'Compression' && bbwSlopeLocal > 10) embeddedScore += 2.0;
+            if (l2 === 'Compression' && ((dir === 'LONG' && localObi > 0.7 && checkS6) || (dir === 'SHORT' && localObi < 0.3 && checkS6))) embeddedScore += 2.0;
+            
             if (l2 === 'Compression' && checkS2 && checkS6) embeddedScore += 2.0;
             if (l2 === 'Extreme' && checkS3 && checkS4) embeddedScore += 2.0;
             if (localVolSpike && !checkS5 && checkS6) embeddedScore += 1.5;
@@ -309,14 +315,13 @@ export default function useMatrixScanner({
                                isTripleTrendBull || isTripleTrendBear || 
                                (adxValue > 35 && checkS6) || 
                                (dir === 'LONG' && currentMvrv < 1.0 && checkS3) || 
-                               (dir === 'SHORT' && currentMvrv > 2.5 && checkS3);
+                               (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
+                               (l2 === 'Compression' && bbwSlopeLocal > 10);
 
-            // LOGIC RIÊNG CHO NANO-CAP (VỐN NHỎ)
-            // Lấy ra OI hiện tại để so sánh
-            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); // Lấy Vol giả lập OI nếu ko gọi đc trực tiếp
+            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); 
             const hasNanoCapSynergy = 
                 simulatedRR >= 2.5 && 
-                (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike);
+                (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
 
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
@@ -331,9 +336,14 @@ export default function useMatrixScanner({
             
             if (!isApproved || embeddedScore < 6.5) continue; 
 
+            // NON-LINEAR SIZING APPLIED TO SCANNER
+            const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
+            
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
-            const riskAmountUSD = capitalSafe * 0.01; 
+            const appliedRiskPercent = 1.0 * riskMultiplier; // Default base 1% for scanning
+            const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
+            
             const slPercentForSize = dynamicSlDistance / entry; 
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
             
@@ -346,7 +356,7 @@ export default function useMatrixScanner({
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
             let overrideTag = '';
-            if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP (VỐN NHỎ)';
+            if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
             else if (isSniperOverride) overrideTag = '🎯 SNIPER';
             else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
             else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
@@ -392,33 +402,22 @@ export default function useMatrixScanner({
     return () => { isMounted = false; clearInterval(scanTimer); };
   }, []); 
 
-  // Động cơ Sonar Ping
   useEffect(() => {
     if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) {
         prevScannedSigRef.current = '';
         return;
     }
-
     const currentSig = scannedTopSetups.map(s => `${s.symbol}-${s.interval}-${s.direction}`).join('|');
-    
     if (prevScannedSigRef.current !== '' && currentSig !== prevScannedSigRef.current) {
         try {
             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
             audio.volume = 0.6;
             audio.play().catch(e => console.log("Trình duyệt chặn Auto-play:", e));
             if (showToast) showToast("🎯 RADAR PING: Phát hiện biến động Setup mới trên Scanner!");
-        } catch (error) {
-            console.error("Lỗi phát âm thanh:", error);
-        }
+        } catch (error) {}
     }
-    
     prevScannedSigRef.current = currentSig;
   }, [scannedTopSetups, sonarEnabled, showToast]);
 
-  return {
-    scannedTopSetups,
-    isScanningBackground,
-    sonarEnabled,
-    setSonarEnabled
-  };
+  return { scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled };
 }

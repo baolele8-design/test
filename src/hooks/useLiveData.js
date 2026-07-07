@@ -29,11 +29,9 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     realSpreadPct: 0.05 
   });
 
-  // Dùng Ref để tránh stale state bên trong các hàm async interval
   const apiMacroRef = useRef(apiMacro);
   useEffect(() => { apiMacroRef.current = apiMacro; }, [apiMacro]);
 
-  // Động cơ 1: Session & Weekend Detector (60s)
   useEffect(() => {
     const detectSessionAndWeekend = () => {
       const now = new Date();
@@ -62,7 +60,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     return () => clearInterval(timer);
   }, []);
 
-  // Động cơ 2: Lấy Bracket & Fees (Chạy 1 lần khi đổi symbol)
   useEffect(() => {
     let isMounted = true;
     const fetchBracketsAndFees = async () => {
@@ -91,7 +88,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     return () => { isMounted = false; };
   }, [symbol]);
 
-  // Động cơ 3: Cập nhật CoinMarketCap Vĩ mô (5 phút)
   useEffect(() => {
     let isMounted = true;
     const fetchCMC = async () => {
@@ -114,7 +110,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     return () => { isMounted = false; clearInterval(timer); };
   }, []);
 
-  // Động cơ 4: Lõi Live Data Binance (15s)
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
@@ -122,7 +117,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     const fetchData = async () => {
       setLoading(true);
       try {
-        setSystemError(false);
+        setSystemError(false); 
         let mtfInterval = '1h';
         if (intervalTime === '15m') mtfInterval = '1h';
         else if (intervalTime === '1h') mtfInterval = '4h';
@@ -179,10 +174,15 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const htfSma200 = QuantMath.sma(closesHTF, 200);
 
         let fetchedSpread = apiMacroRef.current.realSpreadPct;
+        let fetchedObi = 0.5; // Orderbook Imbalance
         if (realBookTicker && realBookTicker.bidPrice && realBookTicker.askPrice) {
             const bid = parseFloat(realBookTicker.bidPrice);
             const ask = parseFloat(realBookTicker.askPrice);
+            const bidQty = parseFloat(realBookTicker.bidQty || 0);
+            const askQty = parseFloat(realBookTicker.askQty || 0);
+            
             if (bid > 0) fetchedSpread = ((ask - bid) / bid) * 100;
+            if (bidQty + askQty > 0) fetchedObi = bidQty / (bidQty + askQty);
         }
 
         let fetchedLsAcc = 1.0, fetchedLsPos = 1.0, fetchedTaker = 1.0;
@@ -226,6 +226,9 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         }
         const bollinger20 = QuantMath.bollinger(closesLTF, indicatorSpecs.bbPeriod, indicatorSpecs.bbStdDev);
         const bbwRank = QuantMath.percentileRank(bollinger20.bbw, bbwHist.slice(-100)); 
+        
+        // Gia tốc biến động: Độ dốc của BBW so với 5 nến trước
+        const bbwSlopeValue = bbwHist.length >= 5 ? ((bollinger20.bbw - bbwHist[bbwHist.length - 5]) / (bbwHist[bbwHist.length - 5] || 1)) * 100 : 0;
 
         const cmfValue = QuantMath.cmf(highsLTF, lowsLTF, closesLTF, volumesLTF, 20);
 
@@ -271,6 +274,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
             ema20, ema34, ema50, ema89, ema200,
             scan20_50, scan50_200, 
             fundingRate: fundingRateValue, fundingSlope: fundingSlopeValue, 
+            obi: fetchedObi, bbwSlope: bbwSlopeValue,
             currentOi: currentOiValue, oiEma: oiEma14, oiDelta: oiDeltaPercent, isOiSpiking: currentOiValue > oiEma14,
             currentVolume: volumesLTF[volumesLTF.length - 1], 
             lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
