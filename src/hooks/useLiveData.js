@@ -1,4 +1,3 @@
-// FILE: src/hooks/useLiveData.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 
@@ -112,9 +111,8 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         else if (intervalTime === '4h') mtfInterval = '1d';
         else if (intervalTime === '1d') mtfInterval = '1w';
 
-        // CHỐNG LỖI 400: API Tỷ lệ (Ratio) của Binance Futures KHÔNG hỗ trợ 1w
         let macroInterval = intervalTime;
-        if (intervalTime === '1w') macroInterval = '1d';
+        if (intervalTime === '1w') macroInterval = '1d'; // CHỐNG LỖI 400 KHI CHỌN KHUNG W1
 
         const ts = Date.now(); 
         const safeFetch = async (url) => {
@@ -125,13 +123,13 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
           } catch (e) { return null; }
         };
 
+        // CHỐNG LỖI 400 BẰNG CÁCH DÙNG /fapi/v1/klines
         const requests = [
-          safeFetch(`/api/binance?path=/api/v3/klines&symbol=${symbol}&interval=${intervalTime}&limit=250&t=${ts}`),
-          safeFetch(`/api/binance?path=/api/v3/klines&symbol=${symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
-          safeFetch(`/api/binance?path=/api/v3/klines&symbol=${symbol}&interval=1d&limit=250&t=${ts}`),
+          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${intervalTime}&limit=250&t=${ts}`),
+          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
+          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=1d&limit=250&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/fundingRate&symbol=${symbol}&limit=10&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/openInterest&symbol=${symbol}&t=${ts}`),
-          // Thay intervalTime bằng macroInterval
           safeFetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${symbol}&period=${macroInterval}&limit=30&t=${ts}`),
           safeFetch(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
           safeFetch(`/api/binance?path=/futures/data/topLongShortPositionRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),

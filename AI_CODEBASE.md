@@ -1,9 +1,10 @@
---- START OF FILE Paste Jul 07, 2026, 10:11 PM ---
+--- START OF FILE Paste Jul 07, 2026, 10:27 PM ---
 
 =========================================
 /// FILE: src\App.jsx
 =========================================
 
+// FILE: src/App.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrainCircuit, Activity, Loader2, ServerCrash, Bell } from 'lucide-react';
 
@@ -44,7 +45,8 @@ export default function AntiFragileTerminal() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
-  const { dynamicMinNotionals, dynamicPool } = useExchangeConfig();
+  // THÊM TRUY XUẤT STEPSIZE / TICKSIZE
+  const { dynamicMinNotionals, dynamicPool, stepSizes, tickSizes } = useExchangeConfig();
 
   const {
     loading, lastUpdated, systemError, liveCapital,
@@ -156,7 +158,6 @@ export default function AntiFragileTerminal() {
     return { vector: [l1, l2, l3, l4, l5, l6], details: { l1, l2, l3, l4, l5, l6, mvrvDesc, isAltcoinBleeding, isAltcoinSeason } };
   }, [autoData, apiMacro, cmcData, mvrvZScore, symbol]);
 
-  // HỆ THỐNG CHẤM ĐIỂM (Tách biệt để phục vụ Đi vốn Phi tuyến)
   const systemScore = useMemo(() => {
     if (!autoData || !apiMacro || !vectorRegime) return { score: 0, synergyText: "", penaltyText: "", checks: {}, w: {} };
     
@@ -189,7 +190,6 @@ export default function AntiFragileTerminal() {
     if (autoData.adx > 35 && checkS6) { score += 1.5; synergyText += "[🌪️ ADX Squeeze: Taker chủ động xả đạn vào Siêu Trend (ADX>35)] "; }
     if ((tradeSetup.direction === 'LONG' && mvrvZScore < 1.0 && checkS3) || (tradeSetup.direction === 'SHORT' && mvrvZScore > 2.5 && checkS3)) { score += 1.5; synergyText += "[💎 Deep Value Sweep: Quét SFP tại Vùng định giá Vĩ mô] "; }
     
-    // SYNERGY TỪ CÁC CHỈ BÁO MỚI (BBW Acceleration & Whale OBI)
     if (l2 === 'Compression' && autoData.bbwSlope > 10) { score += 2.0; synergyText += "[🧨 Volatility Expansion: Gia tốc Nén BBW ngóc đầu] "; }
     if (l2 === 'Compression' && ((tradeSetup.direction === 'LONG' && autoData.obi > 0.7 && checkS6) || (tradeSetup.direction === 'SHORT' && autoData.obi < 0.3 && checkS6))) { score += 2.0; synergyText += "[🐳 Whale Accumulation: OBI Imbalance tại vùng nén] "; }
 
@@ -230,7 +230,6 @@ export default function AntiFragileTerminal() {
 
     const capitalSafe = liveCapital > 0 ? liveCapital : 0; 
 
-    // CHIẾN THUẬT RỦI RO PHI TUYẾN TÍNH (Non-Linear Sizing)
     const riskMultiplier = Math.max(0.5, Math.min(2.0, (systemScore.score - 5) / 3));
     let appliedRiskPercent = tradeSetup.riskPercent * riskMultiplier;
 
@@ -352,36 +351,27 @@ export default function AntiFragileTerminal() {
         {
           id: "Agent_1",
           role: "Nhà phân tích Xu hướng & Động học Cấu trúc (Trend & Structure)",
-          focusPrompt: `Dữ liệu cấu trúc EMA (20 nến): Độ dốc EMA20=${autoData.ema20.slope.toFixed(2)}%, EMA50=${autoData.ema50.slope.toFixed(2)}%, EMA200=${autoData.ema200.slope.toFixed(2)}%. HTF SMA200=$${autoData.htfSma200.toFixed(2)}. ADX Trend Strength=${autoData.adx.toFixed(1)}.
-Hãy phân tích độ nén và gia tốc của xu hướng. Bắt buộc kết luận bằng 1 câu chỉ ra 'Xác suất thành công: XX%'.`
+          focusPrompt: `Dữ liệu cấu trúc EMA (20 nến): Độ dốc EMA20=${autoData.ema20.slope.toFixed(2)}%, EMA50=${autoData.ema50.slope.toFixed(2)}%, EMA200=${autoData.ema200.slope.toFixed(2)}%. HTF SMA200=$${autoData.htfSma200.toFixed(2)}. ADX Trend Strength=${autoData.adx.toFixed(1)}. Hãy phân tích độ nén và gia tốc của xu hướng. Bắt buộc kết luận bằng 1 câu chỉ ra 'Xác suất thành công: XX%'.`
         },
         {
           id: "Agent_2",
           role: "Nhà phân tích Biến động & Ma sát Giao dịch (Volatility & Cost Drag)",
-          focusPrompt: `Chỉ báo Biến động: ATR=${autoData.atr14.toFixed(2)} (Rank P${autoData.atrRank.toFixed(0)}), BBW Rank=P${autoData.bbwRank.toFixed(0)}, Gia tốc BBW=${autoData.bbwSlope.toFixed(2)}%.
-Dữ liệu Ma sát: Funding Rate=${autoData.fundingRate.toFixed(4)}% (Slope: ${autoData.fundingSlope.toFixed(4)}%), Real Spread=${apiMacro.realSpreadPct.toFixed(4)}%.
-Hãy đánh giá việc Entry/SL có đủ an toàn so với biến động (ATR) và chi phí ẩn (Cost Drag) hay không.`
+          focusPrompt: `Chỉ báo Biến động: ATR=${autoData.atr14.toFixed(2)} (Rank P${autoData.atrRank.toFixed(0)}), BBW Rank=P${autoData.bbwRank.toFixed(0)}, Gia tốc BBW=${autoData.bbwSlope.toFixed(2)}%. Dữ liệu Ma sát: Funding Rate=${autoData.fundingRate.toFixed(4)}% (Slope: ${autoData.fundingSlope.toFixed(4)}%), Real Spread=${apiMacro.realSpreadPct.toFixed(4)}%. Hãy đánh giá việc Entry/SL có đủ an toàn so với biến động (ATR) và chi phí ẩn (Cost Drag) hay không.`
         },
         {
           id: "Agent_3",
           role: "Nhà phân tích Orderflow & Dấu chân Smart Money (Orderbook Engine)",
-          focusPrompt: `Dữ liệu vị thế: OI Delta=${autoData.oiDelta.toFixed(2)}% (Spiking: ${autoData.isOiSpiking}). Taker Buy/Sell=${apiMacro.takerBuySellRatio.toFixed(2)}. OBI=${(autoData.obi*100).toFixed(1)}%.
-Phát hiện Phân kỳ OBV: Bearish=${autoData.isObvBearDivergence}, Bullish=${autoData.isObvBullDivergence}.
-Hãy giải mã phe nào đang bị kẹt (Trapped Liquidity) và dự phóng cú Squeeze.`
+          focusPrompt: `Dữ liệu vị thế: OI Delta=${autoData.oiDelta.toFixed(2)}% (Spiking: ${autoData.isOiSpiking}). Taker Buy/Sell=${apiMacro.takerBuySellRatio.toFixed(2)}. OBI=${(autoData.obi*100).toFixed(1)}%. Phát hiện Phân kỳ OBV: Bearish=${autoData.isObvBearDivergence}, Bullish=${autoData.isObvBullDivergence}. Hãy giải mã phe nào đang bị kẹt (Trapped Liquidity) và dự phóng cú Squeeze.`
         },
         {
           id: "Agent_4",
           role: "Nhà phân tích Động lượng & Quét Thanh khoản (Momentum & SFP)",
-          focusPrompt: `Dữ liệu: RSI=${autoData.rsi.toFixed(1)}, Dòng tiền Chaikin (CMF)=${autoData.cmf.toFixed(2)}. 
-Tín hiệu SFP (Swing Failure Pattern): Bullish SFP=${autoData.isBullishSFP}, Bearish SFP=${autoData.isBearishSFP}.
-Thẩm định xem cú trade này là Fakeout (Bẫy) hay một cú Breakout/Reversal chân thực.`
+          focusPrompt: `Dữ liệu: RSI=${autoData.rsi.toFixed(1)}, Dòng tiền Chaikin (CMF)=${autoData.cmf.toFixed(2)}. Tín hiệu SFP (Swing Failure Pattern): Bullish SFP=${autoData.isBullishSFP}, Bearish SFP=${autoData.isBearishSFP}. Thẩm định xem cú trade này là Fakeout (Bẫy) hay một cú Breakout/Reversal chân thực.`
         },
         {
           id: "Agent_5",
           role: "Nhà quản trị Rủi ro Tồn tại (Survival Risk & Liquidation)",
-          focusPrompt: `Đòn bẩy dự kiến: ${mathCore.suggestedLeverage}x. Rủi ro thực tế (Non-linear Scaled): $${mathCore.riskAmountUSD} (${mathCore.appliedRiskPercent}%).
-Khoảng cách Thanh lý (Safety Margin): ${mathCore.liqSafetyMargin > 0 ? (mathCore.liqSafetyMargin*100).toFixed(0)+'%' : 'N/A'}. Cảnh báo Min Notional: ${mathCore.hasMinNotionalError}.
-Hãy đánh giá rủi ro cháy tài khoản (Ruin Risk) nếu gặp Flash Crash.`
+          focusPrompt: `Đòn bẩy dự kiến: ${mathCore.suggestedLeverage}x. Rủi ro thực tế (Non-linear Scaled): $${mathCore.riskAmountUSD} (${mathCore.appliedRiskPercent}%). Khoảng cách Thanh lý (Safety Margin): ${mathCore.liqSafetyMargin > 0 ? (mathCore.liqSafetyMargin*100).toFixed(0)+'%' : 'N/A'}. Cảnh báo Min Notional: ${mathCore.hasMinNotionalError}. Hãy đánh giá rủi ro cháy tài khoản (Ruin Risk) nếu gặp Flash Crash.`
         }
       ];
 
@@ -449,7 +439,7 @@ BẤT DI BẤT DỊCH:
       
       const { error } = await supabase.from('trade_logs').insert([payload]);
       if (error) throw error;
-      showToast("☁️ ĐÃ LƯU VECTOR. Lệnh đang ở trạng thái [CHỜ KHỚP]. Hãy đặt lệnh thật trên Binance!");
+      showToast("☁️ ĐÃ LƯU VECTOR. Lệnh đang ở trạng thái [CHỜ KHỚP].");
     } catch (e) { showToast(`❌ Lỗi Supabase: ${e.message}`); }
   };
 
@@ -591,10 +581,12 @@ BẤT DI BẤT DỊCH:
         <div className="lg:col-span-7 space-y-6">
           <LiveMetrics autoData={autoData} apiMacro={apiMacro} cmcData={cmcData} indicatorSpecs={indicatorSpecs} mvrvZScore={mvrvZScore} setMvrvZScore={setMvrvZScore} />
           <VectorState vectorRegime={vectorRegime} mvrvZScore={mvrvZScore} autoData={autoData} />
+          {/* TRUYỀN TICKSIZE VÀ STEPSIZE XUỐNG ORDER FORM */}
           <OrderForm 
             autoData={autoData} tradeSetup={tradeSetup} setTradeSetup={setTradeSetup} 
             liveCapital={liveCapital} mathCore={mathCore} tradeStats={tradeStats} 
             symbol={symbol} handleMasterAuto={handleMasterAuto} 
+            stepSizes={stepSizes} tickSizes={tickSizes}
           />
           <TradeJournal 
             tradeLogs={tradeLogs} 
@@ -1663,42 +1655,51 @@ import { POOL_SYMBOLS, MIN_NOTIONALS } from '../config/constants';
 export default function useExchangeConfig() {
   const [dynamicMinNotionals, setDynamicMinNotionals] = useState(MIN_NOTIONALS);
   const [dynamicPool, setDynamicPool] = useState(POOL_SYMBOLS);
+  
+  // Thêm 2 state để lấy độ chính xác thập phân của sàn
+  const [stepSizes, setStepSizes] = useState({});
+  const [tickSizes, setTickSizes] = useState({});
 
   useEffect(() => {
     let isMounted = true;
     const fetchExchangeData = async () => {
       try {
         const ts = Date.now();
-        // 1. Fetch Min Notional trực tiếp từ Binance
+        // 1. Fetch Min Notional, Step Size, Tick Size trực tiếp từ Binance
         const exRes = await fetch(`/api/binance?path=/fapi/v1/exchangeInfo&t=${ts}`);
         const exData = await exRes.json();
 
-        // 2. Fetch Ticker 24h để tìm Coin đang biến động mạnh (Dành cho Vốn nhỏ)
+        // 2. Fetch Ticker 24h để tìm Coin đang biến động mạnh
         const tickerRes = await fetch(`/api/binance?path=/fapi/v1/ticker/24hr&t=${ts}`);
         const tickerData = await tickerRes.json();
 
         if (!isMounted || !exData.symbols || !Array.isArray(tickerData)) return;
 
-        // Xử lý Min Notional
         const newNotionals = { ...MIN_NOTIONALS };
+        const newStepSizes = {};
+        const newTickSizes = {};
+
         exData.symbols.forEach(sym => {
           const notionalFilter = sym.filters.find(f => f.filterType === 'MIN_NOTIONAL');
-          if (notionalFilter) {
-            newNotionals[sym.symbol] = parseFloat(notionalFilter.notional || 5);
-          }
+          if (notionalFilter) newNotionals[sym.symbol] = parseFloat(notionalFilter.notional || 5);
+          
+          const lotSize = sym.filters.find(f => f.filterType === 'LOT_SIZE');
+          if (lotSize) newStepSizes[sym.symbol] = parseFloat(lotSize.stepSize);
+          
+          const priceFilter = sym.filters.find(f => f.filterType === 'PRICE_FILTER');
+          if (priceFilter) newTickSizes[sym.symbol] = parseFloat(priceFilter.tickSize);
         });
 
-        // Xử lý Thêm Coin Tự Động: Chọn Top 15 Coin USDT có Volume > 50M$ và Biến động % mạnh nhất
         const validTickers = tickerData
           .filter(t => t.symbol.endsWith('USDT') && !POOL_SYMBOLS.includes(t.symbol) && parseFloat(t.quoteVolume) > 50000000)
           .sort((a, b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)));
         
         const topVolatileCoins = validTickers.slice(0, 15).map(t => t.symbol);
-        
-        // Gộp 9 coin gốc và các coin mới (Chỉ thêm, không xóa)
         const mergedPool = [...new Set([...POOL_SYMBOLS, ...topVolatileCoins])];
 
         setDynamicMinNotionals(newNotionals);
+        setStepSizes(newStepSizes);
+        setTickSizes(newTickSizes);
         setDynamicPool(mergedPool);
       } catch (e) {
         console.error("⚠️ Lỗi Đồng bộ Dữ liệu Exchange Info:", e);
@@ -1706,18 +1707,18 @@ export default function useExchangeConfig() {
     };
 
     fetchExchangeData();
-    // Tự động cập nhật danh sách coin nóng mỗi 4 tiếng
-    const timer = setInterval(fetchExchangeData, 14400000);
+    const timer = setInterval(fetchExchangeData, 14400000); // 4 tiếng cập nhật 1 lần
     return () => { isMounted = false; clearInterval(timer); };
   }, []);
 
-  return { dynamicMinNotionals, dynamicPool };
+  return { dynamicMinNotionals, dynamicPool, stepSizes, tickSizes };
 }
 
 =========================================
 /// FILE: src\hooks\useLiveData.js
 =========================================
 
+// FILE: src/hooks/useLiveData.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 
@@ -1768,13 +1769,9 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
       if (isWknd) mult = mult * 0.5;
       
       setApiMacro(prev => ({ 
-        ...prev, 
-        isWeekend: isWknd,
-        tradingSession: currentSession,
-        sessionMultiplier: mult
+        ...prev, isWeekend: isWknd, tradingSession: currentSession, sessionMultiplier: mult
       }));
     };
-
     detectSessionAndWeekend();
     const timer = setInterval(detectSessionAndWeekend, 60000); 
     return () => clearInterval(timer);
@@ -1788,21 +1785,16 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const resBracket = await fetch(`/api/binance?path=/fapi/v1/leverageBracket&symbol=${symbol}&isPrivate=true&t=${ts}`);
         if (resBracket.ok) {
            const data = await resBracket.json();
-           if (isMounted && Array.isArray(data) && data[0]?.brackets) {
-             setLeverageBrackets(data[0].brackets);
-           }
+           if (isMounted && Array.isArray(data) && data[0]?.brackets) setLeverageBrackets(data[0].brackets);
         }
         const resFee = await fetch(`/api/binance?path=/fapi/v1/commissionRate&symbol=${symbol}&isPrivate=true&t=${ts}`);
         if (resFee.ok) {
            const data = await resFee.json();
            if (isMounted && data && data.makerCommissionRate) {
-              setTradeFees({
-                 maker: parseFloat(data.makerCommissionRate),
-                 taker: parseFloat(data.takerCommissionRate)
-              });
+              setTradeFees({ maker: parseFloat(data.makerCommissionRate), taker: parseFloat(data.takerCommissionRate) });
            }
         }
-      } catch (err) { console.error("⚠️ Bracket/Fee Fetch Error"); }
+      } catch (err) {}
     };
     fetchBracketsAndFees();
     return () => { isMounted = false; };
@@ -1816,14 +1808,10 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         if (!res.ok) return;
         const data = await res.json();
         if (isMounted) {
-          setCmcData({
-            btcDominanceRealtime: data.btcDominance, 
-            totalMarketCapBillion: data.totalMarketCap / 1e9, 
-            fgiClassification: data.fgiClassification
-          });
+          setCmcData({ btcDominanceRealtime: data.btcDominance, totalMarketCapBillion: data.totalMarketCap / 1e9, fgiClassification: data.fgiClassification });
           setApiMacro(prev => ({ ...prev, fgiValue: data.fgiValue }));
         }
-      } catch (err) { console.error("CMC Fetch failed."); }
+      } catch (err) {}
     };
     fetchCMC();
     const timer = setInterval(fetchCMC, 300000); 
@@ -1844,6 +1832,10 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         else if (intervalTime === '4h') mtfInterval = '1d';
         else if (intervalTime === '1d') mtfInterval = '1w';
 
+        // CHỐNG LỖI 400: API Tỷ lệ (Ratio) của Binance Futures KHÔNG hỗ trợ 1w
+        let macroInterval = intervalTime;
+        if (intervalTime === '1w') macroInterval = '1d';
+
         const ts = Date.now(); 
         const safeFetch = async (url) => {
           try {
@@ -1859,10 +1851,11 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
           safeFetch(`/api/binance?path=/api/v3/klines&symbol=${symbol}&interval=1d&limit=250&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/fundingRate&symbol=${symbol}&limit=10&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/openInterest&symbol=${symbol}&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${symbol}&period=${intervalTime}&limit=30&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${symbol}&period=${intervalTime}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/topLongShortPositionRatio&symbol=${symbol}&period=${intervalTime}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${symbol}&period=${intervalTime}&limit=1&t=${ts}`),
+          // Thay intervalTime bằng macroInterval
+          safeFetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${symbol}&period=${macroInterval}&limit=30&t=${ts}`),
+          safeFetch(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
+          safeFetch(`/api/binance?path=/futures/data/topLongShortPositionRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
+          safeFetch(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v2/positionRisk&isPrivate=true&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v2/account&isPrivate=true&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=BTCDOMUSDT&interval=${mtfInterval}&limit=25&t=${ts}`),
@@ -1894,7 +1887,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const htfSma200 = QuantMath.sma(closesHTF, 200);
 
         let fetchedSpread = apiMacroRef.current.realSpreadPct;
-        let fetchedObi = 0.5; // Orderbook Imbalance
+        let fetchedObi = 0.5;
         if (realBookTicker && realBookTicker.bidPrice && realBookTicker.askPrice) {
             const bid = parseFloat(realBookTicker.bidPrice);
             const ask = parseFloat(realBookTicker.askPrice);
@@ -1910,13 +1903,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         if (lsPosData && lsPosData.length > 0) fetchedLsPos = parseFloat(lsPosData[lsPosData.length-1].longShortRatio);
         if (takerData && takerData.length > 0) fetchedTaker = parseFloat(takerData[takerData.length-1].buySellRatio);
 
-        setApiMacro(prev => ({
-            ...prev,
-            realSpreadPct: fetchedSpread,
-            longShortRatio: fetchedLsAcc,
-            lsPositionVolRatio: fetchedLsPos,
-            takerBuySellRatio: fetchedTaker
-        }));
+        setApiMacro(prev => ({ ...prev, realSpreadPct: fetchedSpread, longShortRatio: fetchedLsAcc, lsPositionVolRatio: fetchedLsPos, takerBuySellRatio: fetchedTaker }));
 
         const oiValues = Array.isArray(oiHist) ? oiHist.map(d => parseFloat(d.sumOpenInterestValue) || 0) : [0];
         const oiEma14 = QuantMath.ema(oiValues, 14) || oiValues[oiValues.length - 1] || 0;
@@ -1946,8 +1933,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         }
         const bollinger20 = QuantMath.bollinger(closesLTF, indicatorSpecs.bbPeriod, indicatorSpecs.bbStdDev);
         const bbwRank = QuantMath.percentileRank(bollinger20.bbw, bbwHist.slice(-100)); 
-        
-        // Gia tốc biến động: Độ dốc của BBW so với 5 nến trước
         const bbwSlopeValue = bbwHist.length >= 5 ? ((bollinger20.bbw - bbwHist[bbwHist.length - 5]) / (bbwHist[bbwHist.length - 5] || 1)) * 100 : 0;
 
         const cmfValue = QuantMath.cmf(highsLTF, lowsLTF, closesLTF, volumesLTF, 20);
@@ -1964,12 +1949,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const closesMTF = klinesMTF.map(d => parseFloat(d[4]));
         const scan20_50 = QuantMath.scanEmaRange(closesMTF, 20, 50, 20);
         const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
-
-        const ema20 = { value: scan20_50.fastEmaCurrent, slope: scan20_50.fastSlope };
-        const ema34 = { value: QuantMath.ema(closesMTF, 34), slope: 0 }; 
-        const ema50 = { value: scan20_50.slowEmaCurrent, slope: scan20_50.slowSlope };
-        const ema89 = { value: QuantMath.ema(closesMTF, 89), slope: 0 };
-        const ema200 = { value: scan50_200.slowEmaCurrent, slope: scan50_200.slowSlope };
 
         const atrHist = [];
         for (let i = 14; i < closesLTF.length; i++) {
@@ -1991,13 +1970,16 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         setAutoData({
             currentPrice, atr14, atrPercent: currentPrice > 0 ? (atr14 / currentPrice) * 100 : 0, atrRank,
             adx: adxValue, htfSma200, rsi: rsiValue, bbwRank, bbw: bollinger20.bbw, cmf: cmfValue,
-            ema20, ema34, ema50, ema89, ema200,
+            ema20: { value: scan20_50.fastEmaCurrent, slope: scan20_50.fastSlope }, 
+            ema34: { value: QuantMath.ema(closesMTF, 34), slope: 0 }, 
+            ema50: { value: scan20_50.slowEmaCurrent, slope: scan20_50.slowSlope }, 
+            ema89: { value: QuantMath.ema(closesMTF, 89), slope: 0 }, 
+            ema200: { value: scan50_200.slowEmaCurrent, slope: scan50_200.slowSlope },
             scan20_50, scan50_200, 
             fundingRate: fundingRateValue, fundingSlope: fundingSlopeValue, 
             obi: fetchedObi, bbwSlope: bbwSlopeValue,
             currentOi: currentOiValue, oiEma: oiEma14, oiDelta: oiDeltaPercent, isOiSpiking: currentOiValue > oiEma14,
-            currentVolume: volumesLTF[volumesLTF.length - 1], 
-            lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
+            currentVolume: volumesLTF[volumesLTF.length - 1], lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
             avgVolume20: QuantMath.sma(volumesLTF.slice(0, -1), 20), 
             isObvBearDivergence, isObvBullDivergence,
             isBullishSFP: QuantMath.detectSFP_Advanced(highsLTF, lowsLTF, closesLTF, 'LONG'),
@@ -2023,18 +2005,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     return () => { isMounted = false; controller.abort(); clearInterval(timer); };
   }, [symbol, intervalTime, indicatorSpecs, cmcData.btcDominanceRealtime]);
 
-  return {
-    loading,
-    lastUpdated,
-    systemError,
-    liveCapital,
-    binancePositions,
-    leverageBrackets,
-    tradeFees,
-    autoData,
-    cmcData,
-    apiMacro
-  };
+  return { loading, lastUpdated, systemError, liveCapital, binancePositions, leverageBrackets, tradeFees, autoData, cmcData, apiMacro };
 }
 
 =========================================
@@ -2047,6 +2018,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
 /// FILE: src\hooks\useMatrixScanner.js
 =========================================
 
+// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
@@ -2155,10 +2127,14 @@ export default function useMatrixScanner({
             else if (task.interval === '4h') mtfInterval = '1d';
             else if (task.interval === '1d') mtfInterval = '1w';
 
+            // Cập nhật macroInterval để chống lỗi 400
+            let macroInterval = task.interval;
+            if (task.interval === '1w') macroInterval = '1d';
+
             return Promise.all([
               fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${task.interval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${task.interval}&limit=1&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
             ]).then(([klines, takerData, lsData, klinesMTF]) => ({
               ...task,
@@ -2324,10 +2300,8 @@ export default function useMatrixScanner({
             if (checkS7) embeddedScore += w.s7;
             if (checkS8) embeddedScore += w.s8;
             
-            // NEW SCALING SYNERGIES
             if (l2 === 'Compression' && bbwSlopeLocal > 10) embeddedScore += 2.0;
             if (l2 === 'Compression' && ((dir === 'LONG' && localObi > 0.7 && checkS6) || (dir === 'SHORT' && localObi < 0.3 && checkS6))) embeddedScore += 2.0;
-            
             if (l2 === 'Compression' && checkS2 && checkS6) embeddedScore += 2.0;
             if (l2 === 'Extreme' && checkS3 && checkS4) embeddedScore += 2.0;
             if (localVolSpike && !checkS5 && checkS6) embeddedScore += 1.5;
@@ -2367,7 +2341,6 @@ export default function useMatrixScanner({
                                (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
                                (l2 === 'Compression' && bbwSlopeLocal > 10);
 
-            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); 
             const hasNanoCapSynergy = 
                 simulatedRR >= 2.5 && 
                 (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
@@ -2385,12 +2358,11 @@ export default function useMatrixScanner({
             
             if (!isApproved || embeddedScore < 6.5) continue; 
 
-            // NON-LINEAR SIZING APPLIED TO SCANNER
             const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
             
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
-            const appliedRiskPercent = 1.0 * riskMultiplier; // Default base 1% for scanning
+            const appliedRiskPercent = 1.0 * riskMultiplier; 
             const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
             
             const slPercentForSize = dynamicSlDistance / entry; 

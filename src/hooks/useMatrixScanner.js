@@ -1,4 +1,3 @@
-// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
@@ -59,7 +58,7 @@ export default function useMatrixScanner({
         
         try {
             const [allBook, allPrem] = await Promise.all([
-                fetchWithTimeout(`/api/binance?path=/api/v3/ticker/bookTicker&t=${ts}`, 10000),
+                fetchWithTimeout(`/api/binance?path=/fapi/v1/ticker/bookTicker&t=${ts}`, 10000),
                 fetchWithTimeout(`/api/binance?path=/fapi/v1/premiumIndex&t=${ts}`, 10000)
             ]);
 
@@ -94,7 +93,8 @@ export default function useMatrixScanner({
           }
         }
 
-        const chunkSize = 9; 
+        // TỐI ƯU RATE LIMIT VERCEL: Giảm chunk xuống 6 để tránh lỗi 429
+        const chunkSize = 6; 
         const results = [];
 
         for (let i = 0; i < fetchTasks.length; i += chunkSize) {
@@ -107,15 +107,15 @@ export default function useMatrixScanner({
             else if (task.interval === '4h') mtfInterval = '1d';
             else if (task.interval === '1d') mtfInterval = '1w';
 
-            // Cập nhật macroInterval để chống lỗi 400
             let macroInterval = task.interval;
             if (task.interval === '1w') macroInterval = '1d';
 
+            // CHỐNG LỖI 400: Thay /api/v3/klines bằng /fapi/v1/klines
             return Promise.all([
-              fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
             ]).then(([klines, takerData, lsData, klinesMTF]) => ({
               ...task,
               klines,
@@ -129,7 +129,8 @@ export default function useMatrixScanner({
           results.push(...chunkResults);
           
           if (i + chunkSize < fetchTasks.length) {
-            await new Promise(resolve => setTimeout(resolve, 300)); 
+            // Tăng thời gian nghỉ để Serverless Function dọn rác
+            await new Promise(resolve => setTimeout(resolve, 500)); 
           }
         }
 
@@ -376,9 +377,7 @@ export default function useMatrixScanner({
               cmf: cmf.toFixed(2),
               overrideTag 
             });
-          } catch (innerErr) {
-             continue;
-          }
+          } catch (innerErr) { continue; }
         }
 
         scanResultsPool.sort((a, b) => parseFloat(b.theoreticalRR) - parseFloat(a.theoreticalRR));
