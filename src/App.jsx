@@ -438,81 +438,97 @@ Nhiệm vụ kiểm toán của bạn:
         risk_amount_usd: Math.max(0.1, parseFloat(mathCore.riskAmountUSD)), rr: parseFloat(mathCore.theoreticalRR),
         adx: parseFloat(autoData.adx), atr: parseFloat(autoData.atr14), funding_rate: parseFloat(autoData.fundingRate),
         oi_spiking: autoData.isOiSpiking, fgi: parseFloat(apiMacro.fgiValue),
-        trend_sma200: autoData.currentPrice > autoData.htfSma200 ? 'UP' : 'DOWN', leverage: parseFloat(mathCore.suggestedLeverage), status: 'OPEN', pnl_usd: 0,
-        session: apiMacro.tradingSession, market_regime: vectorRegime.vector.join(' | '), bbw_rank: parseFloat(autoData.bbwRank), cmf: parseFloat(autoData.cmf), 
-        ai_advice: aiAnalysis ? aiAnalysis.substring(0, 3000) : null, mvrv: parseFloat(mvrvZScore), oi_delta: parseFloat(autoData.oiDelta || 0),
-        taker_ratio: parseFloat(apiMacro.takerBuySellRatio || 1), funding_slope: parseFloat(autoData.fundingSlope || 0),
-        soft_score: parseFloat(logicGates.softScore), holding_cycles: 1, applied_risk_pct: parseFloat(tradeSetup.riskPercent) 
+        trend_sma200: autoData.currentPrice > autoData.htfSma200 ? 'UP' : 'DOWN', leverage: parseFloat(mathCore.suggestedLeverage), 
+        status: 'PENDING', // [SỬA ĐỔI]: Đặt trạng thái ban đầu là PENDING (Chờ khớp Binance)
+        pnl_usd: 0, session: apiMacro.tradingSession, market_regime: vectorRegime.vector.join(' | '), bbw_rank: parseFloat(autoData.bbwRank), 
+        cmf: parseFloat(autoData.cmf), ai_advice: aiAnalysis ? aiAnalysis.substring(0, 3000) : null, mvrv: parseFloat(mvrvZScore), 
+        oi_delta: parseFloat(autoData.oiDelta || 0), taker_ratio: parseFloat(apiMacro.takerBuySellRatio || 1), 
+        funding_slope: parseFloat(autoData.fundingSlope || 0), soft_score: parseFloat(logicGates.softScore), 
+        holding_cycles: 1, applied_risk_pct: parseFloat(tradeSetup.riskPercent) 
       };
       
       const { error } = await supabase.from('trade_logs').insert([payload]);
       if (error) throw error;
-      showToast("☁️ Đã lưu toàn bộ Vector & Phán quyết AI vào Supabase.");
+      showToast("☁️ Đã lưu VECTOR. Lệnh đang ở trạng thái [PENDING]. Vui lòng đặt lệnh trên Binance!");
     } catch (e) { showToast(`❌ Lỗi Supabase: ${e.message}`); }
   };
 
-  // THÊM TOÀN BỘ HÀM NÀY VÀO DƯỚI HÀM handleSaveTradeLog:
   const syncBinanceToSupabase = async () => {
     if (!supabase || !binancePositions) return;
     setIsSyncing(true);
     
     try {
-      // 1. Lấy các lệnh đang OPEN trong DB thuộc Symbol hiện tại
-      const openLogs = tradeLogs.filter(log => log.status === 'OPEN' && log.symbol === symbol);
-      if (openLogs.length === 0) {
-        showToast("✅ Không có lệnh OPEN nào trên DB cần đồng bộ.");
+      // [SỬA ĐỔI]: Quét TOÀN BỘ lệnh đang PENDING hoặc OPEN, KHÔNG chặn theo symbol hiện tại nữa!
+      const activeLogs = tradeLogs.filter(log => log.status === 'OPEN' || log.status === 'PENDING');
+      if (activeLogs.length === 0) {
+        showToast("✅ Không có lệnh OPEN/PENDING nào trên DB cần đồng bộ.");
         setIsSyncing(false);
         return;
       }
 
-      // 2. Tìm vị thế thực tế trên Binance cho Symbol này
-      const currentPosition = binancePositions.find(p => p.symbol === symbol);
-      const positionAmt = currentPosition ? parseFloat(currentPosition.positionAmt) : 0;
+      for (const log of activeLogs) {
+        // Tìm vị trí tương ứng trên Binance (Quét xuyên symbol)
+        const currentPosition = binancePositions.find(p => p.symbol === log.symbol);
+        const positionAmt = currentPosition ? parseFloat(currentPosition.positionAmt) : 0;
 
-      for (const log of openLogs) {
-        // Nếu trên sàn không còn vị thế (Position = 0) -> Lệnh đã bị đóng (Cắn SL/TP hoặc chốt tay)
-        if (positionAmt === 0) {
-           // Tính PnL gần đúng tại thời điểm cắn dựa trên giá hiện tại
-           // (Lưu ý: Để chính xác 100% cần gọi API userTrades, nhưng dùng giá hiện tại hoặc SL/TP là giải pháp tinh gọn nhất cho Vercel)
-           const sizeCoin = parseFloat(log.risk_amount_usd) / Math.abs(parseFloat(log.entry) - parseFloat(log.sl));
-           const priceDiff = parseFloat(autoData.currentPrice) - parseFloat(log.entry);
-           const finalPnl = log.direction === 'LONG' ? priceDiff * sizeCoin : -priceDiff * sizeCoin;
-           
-           const exitReason = finalPnl > 0 ? 'TP_OR_MANUAL_PROFIT' : 'SL_OR_MANUAL_LOSS';
-
-           const { error } = await supabase
-             .from('trade_logs')
-             .update({ 
-                status: finalPnl > 0 ? 'WIN' : 'LOSS', 
-                pnl_usd: finalPnl, 
-                close_price: autoData.currentPrice,
-                exit_reason: exitReason,
-                close_time: new Date().toISOString()
-             })
-             .eq('id', log.id);
-             
-           if (!error) {
-              showToast(`🔄 Đã đồng bộ đóng lệnh ${log.symbol} trên Supabase! (PnL: ${finalPnl.toFixed(2)}$)`);
+        // PHASE 1: Lệnh đang chờ khớp (PENDING)
+        if (log.status === 'PENDING') {
+           if (positionAmt !== 0) {
+              // Nếu trên Binance có position thật, ta Update nó thành OPEN và lấy ENTRY THẬT
+              const realEntry = parseFloat(currentPosition.entryPrice);
+              await supabase.from('trade_logs').update({ 
+                  status: 'OPEN',
+                  entry: realEntry 
+              }).eq('id', log.id);
+              showToast(`🔗 Đã liên kết thành công lệnh ${log.symbol} trên Binance vào DB!`);
            }
         } 
-        // Lệnh vẫn đang chạy, kiểm tra xem có cắn MFE (Max Lãi) hay MAE (Max Âm) chưa để cập nhật cho AI học
-        else if (positionAmt !== 0) {
-           const sizeCoin = parseFloat(log.risk_amount_usd) / Math.abs(parseFloat(log.entry) - parseFloat(log.sl));
-           const currentPriceDiff = parseFloat(autoData.currentPrice) - parseFloat(log.entry);
-           const livePnl = log.direction === 'LONG' ? currentPriceDiff * sizeCoin : -currentPriceDiff * sizeCoin;
-           
-           let newMfe = log.max_favorable_excursion_usd || 0;
-           let newMae = log.max_adverse_excursion_usd || 0;
-           let requiresUpdate = false;
+        // PHASE 2: Lệnh đang chạy (OPEN)
+        else if (log.status === 'OPEN') {
+           if (positionAmt === 0) {
+              // Lệnh mất khỏi Binance -> Đã đóng/Cắn SL/TP
+              let exitPrice = autoData?.currentPrice;
+              // Nếu đang check một coin khác symbol đang mở, ta dùng public API lấy giá trị cuối
+              if (log.symbol !== symbol) {
+                  try {
+                     const res = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${log.symbol}`);
+                     const data = await res.json();
+                     if (data.price) exitPrice = parseFloat(data.price);
+                  } catch(e) {}
+              }
+              if (!exitPrice) exitPrice = parseFloat(log.entry);
 
-           if (livePnl > newMfe) { newMfe = livePnl; requiresUpdate = true; }
-           if (livePnl < newMae) { newMae = livePnl; requiresUpdate = true; }
+              const sizeCoin = parseFloat(log.risk_amount_usd) / Math.abs(parseFloat(log.entry) - parseFloat(log.sl));
+              const priceDiff = exitPrice - parseFloat(log.entry);
+              const finalPnl = log.direction === 'LONG' ? priceDiff * sizeCoin : -priceDiff * sizeCoin;
+              const exitReason = finalPnl > 0 ? 'TP_OR_MANUAL_PROFIT' : 'SL_OR_MANUAL_LOSS';
 
-           if (requiresUpdate) {
-              await supabase.from('trade_logs').update({ 
-                max_favorable_excursion_usd: newMfe,
-                max_adverse_excursion_usd: newMae
+              const { error } = await supabase.from('trade_logs').update({ 
+                  status: finalPnl > 0 ? 'WIN' : 'LOSS', 
+                  pnl_usd: finalPnl, 
+                  close_price: exitPrice,
+                  exit_reason: exitReason,
+                  close_time: new Date().toISOString()
               }).eq('id', log.id);
+              
+              if (!error) showToast(`🔄 Đã đồng bộ đóng lệnh ${log.symbol}! (PnL: ${finalPnl.toFixed(2)}$)`);
+           } 
+           // Đang có vị thế chạy -> Lấy MFE / MAE và PnL thật
+           else if (positionAmt !== 0) {
+              const livePnl = parseFloat(currentPosition.unRealizedProfit);
+              let newMfe = log.max_favorable_excursion_usd || 0;
+              let newMae = log.max_adverse_excursion_usd || 0;
+              let requiresUpdate = false;
+
+              if (livePnl > newMfe) { newMfe = livePnl; requiresUpdate = true; }
+              if (livePnl < newMae) { newMae = livePnl; requiresUpdate = true; }
+
+              if (requiresUpdate) {
+                  await supabase.from('trade_logs').update({ 
+                    max_favorable_excursion_usd: newMfe,
+                    max_adverse_excursion_usd: newMae
+                  }).eq('id', log.id);
+              }
            }
         }
       }
@@ -632,6 +648,7 @@ Nhiệm vụ kiểm toán của bạn:
             currentPrice={autoData?.currentPrice} 
             syncBinanceToSupabase={syncBinanceToSupabase} 
             isSyncing={isSyncing} 
+            binancePositions={binancePositions} // [MỚI ĐƯỢC CẤP]
           />
         </div>
 
