@@ -66,7 +66,7 @@ export default function OrderForm({
             // ---------------------------------------------------------
             // CẦU NỐI LƯỢNG TỬ: CHUYỂN HƯỚNG BẮN LỆNH XUỐNG LOCAL BRIDGE
             // ---------------------------------------------------------
-            const LOCAL_BRIDGE_URL = 'http://127.0.0.1:1337/api/execute-batch';
+            const LOCAL_BRIDGE_URL = 'http://localhost:1337/api/execute-batch';
             
             const res = await fetch(LOCAL_BRIDGE_URL, {
                 method: 'POST',
