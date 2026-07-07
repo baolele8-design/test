@@ -1,3 +1,4 @@
+// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
@@ -106,10 +107,14 @@ export default function useMatrixScanner({
             else if (task.interval === '4h') mtfInterval = '1d';
             else if (task.interval === '1d') mtfInterval = '1w';
 
+            // Cập nhật macroInterval để chống lỗi 400
+            let macroInterval = task.interval;
+            if (task.interval === '1w') macroInterval = '1d';
+
             return Promise.all([
               fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${task.interval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${task.interval}&limit=1&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
             ]).then(([klines, takerData, lsData, klinesMTF]) => ({
               ...task,
@@ -275,10 +280,8 @@ export default function useMatrixScanner({
             if (checkS7) embeddedScore += w.s7;
             if (checkS8) embeddedScore += w.s8;
             
-            // NEW SCALING SYNERGIES
             if (l2 === 'Compression' && bbwSlopeLocal > 10) embeddedScore += 2.0;
             if (l2 === 'Compression' && ((dir === 'LONG' && localObi > 0.7 && checkS6) || (dir === 'SHORT' && localObi < 0.3 && checkS6))) embeddedScore += 2.0;
-            
             if (l2 === 'Compression' && checkS2 && checkS6) embeddedScore += 2.0;
             if (l2 === 'Extreme' && checkS3 && checkS4) embeddedScore += 2.0;
             if (localVolSpike && !checkS5 && checkS6) embeddedScore += 1.5;
@@ -318,7 +321,6 @@ export default function useMatrixScanner({
                                (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
                                (l2 === 'Compression' && bbwSlopeLocal > 10);
 
-            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); 
             const hasNanoCapSynergy = 
                 simulatedRR >= 2.5 && 
                 (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
@@ -336,12 +338,11 @@ export default function useMatrixScanner({
             
             if (!isApproved || embeddedScore < 6.5) continue; 
 
-            // NON-LINEAR SIZING APPLIED TO SCANNER
             const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
             
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
-            const appliedRiskPercent = 1.0 * riskMultiplier; // Default base 1% for scanning
+            const appliedRiskPercent = 1.0 * riskMultiplier; 
             const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
             
             const slPercentForSize = dynamicSlDistance / entry; 

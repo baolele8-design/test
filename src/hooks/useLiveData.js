@@ -1,3 +1,4 @@
+// FILE: src/hooks/useLiveData.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 
@@ -48,13 +49,9 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
       if (isWknd) mult = mult * 0.5;
       
       setApiMacro(prev => ({ 
-        ...prev, 
-        isWeekend: isWknd,
-        tradingSession: currentSession,
-        sessionMultiplier: mult
+        ...prev, isWeekend: isWknd, tradingSession: currentSession, sessionMultiplier: mult
       }));
     };
-
     detectSessionAndWeekend();
     const timer = setInterval(detectSessionAndWeekend, 60000); 
     return () => clearInterval(timer);
@@ -68,21 +65,16 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const resBracket = await fetch(`/api/binance?path=/fapi/v1/leverageBracket&symbol=${symbol}&isPrivate=true&t=${ts}`);
         if (resBracket.ok) {
            const data = await resBracket.json();
-           if (isMounted && Array.isArray(data) && data[0]?.brackets) {
-             setLeverageBrackets(data[0].brackets);
-           }
+           if (isMounted && Array.isArray(data) && data[0]?.brackets) setLeverageBrackets(data[0].brackets);
         }
         const resFee = await fetch(`/api/binance?path=/fapi/v1/commissionRate&symbol=${symbol}&isPrivate=true&t=${ts}`);
         if (resFee.ok) {
            const data = await resFee.json();
            if (isMounted && data && data.makerCommissionRate) {
-              setTradeFees({
-                 maker: parseFloat(data.makerCommissionRate),
-                 taker: parseFloat(data.takerCommissionRate)
-              });
+              setTradeFees({ maker: parseFloat(data.makerCommissionRate), taker: parseFloat(data.takerCommissionRate) });
            }
         }
-      } catch (err) { console.error("⚠️ Bracket/Fee Fetch Error"); }
+      } catch (err) {}
     };
     fetchBracketsAndFees();
     return () => { isMounted = false; };
@@ -96,14 +88,10 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         if (!res.ok) return;
         const data = await res.json();
         if (isMounted) {
-          setCmcData({
-            btcDominanceRealtime: data.btcDominance, 
-            totalMarketCapBillion: data.totalMarketCap / 1e9, 
-            fgiClassification: data.fgiClassification
-          });
+          setCmcData({ btcDominanceRealtime: data.btcDominance, totalMarketCapBillion: data.totalMarketCap / 1e9, fgiClassification: data.fgiClassification });
           setApiMacro(prev => ({ ...prev, fgiValue: data.fgiValue }));
         }
-      } catch (err) { console.error("CMC Fetch failed."); }
+      } catch (err) {}
     };
     fetchCMC();
     const timer = setInterval(fetchCMC, 300000); 
@@ -124,6 +112,10 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         else if (intervalTime === '4h') mtfInterval = '1d';
         else if (intervalTime === '1d') mtfInterval = '1w';
 
+        // CHỐNG LỖI 400: API Tỷ lệ (Ratio) của Binance Futures KHÔNG hỗ trợ 1w
+        let macroInterval = intervalTime;
+        if (intervalTime === '1w') macroInterval = '1d';
+
         const ts = Date.now(); 
         const safeFetch = async (url) => {
           try {
@@ -139,10 +131,11 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
           safeFetch(`/api/binance?path=/api/v3/klines&symbol=${symbol}&interval=1d&limit=250&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/fundingRate&symbol=${symbol}&limit=10&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/openInterest&symbol=${symbol}&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${symbol}&period=${intervalTime}&limit=30&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${symbol}&period=${intervalTime}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/topLongShortPositionRatio&symbol=${symbol}&period=${intervalTime}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${symbol}&period=${intervalTime}&limit=1&t=${ts}`),
+          // Thay intervalTime bằng macroInterval
+          safeFetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${symbol}&period=${macroInterval}&limit=30&t=${ts}`),
+          safeFetch(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
+          safeFetch(`/api/binance?path=/futures/data/topLongShortPositionRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
+          safeFetch(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v2/positionRisk&isPrivate=true&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v2/account&isPrivate=true&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=BTCDOMUSDT&interval=${mtfInterval}&limit=25&t=${ts}`),
@@ -174,7 +167,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const htfSma200 = QuantMath.sma(closesHTF, 200);
 
         let fetchedSpread = apiMacroRef.current.realSpreadPct;
-        let fetchedObi = 0.5; // Orderbook Imbalance
+        let fetchedObi = 0.5;
         if (realBookTicker && realBookTicker.bidPrice && realBookTicker.askPrice) {
             const bid = parseFloat(realBookTicker.bidPrice);
             const ask = parseFloat(realBookTicker.askPrice);
@@ -190,13 +183,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         if (lsPosData && lsPosData.length > 0) fetchedLsPos = parseFloat(lsPosData[lsPosData.length-1].longShortRatio);
         if (takerData && takerData.length > 0) fetchedTaker = parseFloat(takerData[takerData.length-1].buySellRatio);
 
-        setApiMacro(prev => ({
-            ...prev,
-            realSpreadPct: fetchedSpread,
-            longShortRatio: fetchedLsAcc,
-            lsPositionVolRatio: fetchedLsPos,
-            takerBuySellRatio: fetchedTaker
-        }));
+        setApiMacro(prev => ({ ...prev, realSpreadPct: fetchedSpread, longShortRatio: fetchedLsAcc, lsPositionVolRatio: fetchedLsPos, takerBuySellRatio: fetchedTaker }));
 
         const oiValues = Array.isArray(oiHist) ? oiHist.map(d => parseFloat(d.sumOpenInterestValue) || 0) : [0];
         const oiEma14 = QuantMath.ema(oiValues, 14) || oiValues[oiValues.length - 1] || 0;
@@ -226,8 +213,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         }
         const bollinger20 = QuantMath.bollinger(closesLTF, indicatorSpecs.bbPeriod, indicatorSpecs.bbStdDev);
         const bbwRank = QuantMath.percentileRank(bollinger20.bbw, bbwHist.slice(-100)); 
-        
-        // Gia tốc biến động: Độ dốc của BBW so với 5 nến trước
         const bbwSlopeValue = bbwHist.length >= 5 ? ((bollinger20.bbw - bbwHist[bbwHist.length - 5]) / (bbwHist[bbwHist.length - 5] || 1)) * 100 : 0;
 
         const cmfValue = QuantMath.cmf(highsLTF, lowsLTF, closesLTF, volumesLTF, 20);
@@ -244,12 +229,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         const closesMTF = klinesMTF.map(d => parseFloat(d[4]));
         const scan20_50 = QuantMath.scanEmaRange(closesMTF, 20, 50, 20);
         const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
-
-        const ema20 = { value: scan20_50.fastEmaCurrent, slope: scan20_50.fastSlope };
-        const ema34 = { value: QuantMath.ema(closesMTF, 34), slope: 0 }; 
-        const ema50 = { value: scan20_50.slowEmaCurrent, slope: scan20_50.slowSlope };
-        const ema89 = { value: QuantMath.ema(closesMTF, 89), slope: 0 };
-        const ema200 = { value: scan50_200.slowEmaCurrent, slope: scan50_200.slowSlope };
 
         const atrHist = [];
         for (let i = 14; i < closesLTF.length; i++) {
@@ -271,13 +250,16 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         setAutoData({
             currentPrice, atr14, atrPercent: currentPrice > 0 ? (atr14 / currentPrice) * 100 : 0, atrRank,
             adx: adxValue, htfSma200, rsi: rsiValue, bbwRank, bbw: bollinger20.bbw, cmf: cmfValue,
-            ema20, ema34, ema50, ema89, ema200,
+            ema20: { value: scan20_50.fastEmaCurrent, slope: scan20_50.fastSlope }, 
+            ema34: { value: QuantMath.ema(closesMTF, 34), slope: 0 }, 
+            ema50: { value: scan20_50.slowEmaCurrent, slope: scan20_50.slowSlope }, 
+            ema89: { value: QuantMath.ema(closesMTF, 89), slope: 0 }, 
+            ema200: { value: scan50_200.slowEmaCurrent, slope: scan50_200.slowSlope },
             scan20_50, scan50_200, 
             fundingRate: fundingRateValue, fundingSlope: fundingSlopeValue, 
             obi: fetchedObi, bbwSlope: bbwSlopeValue,
             currentOi: currentOiValue, oiEma: oiEma14, oiDelta: oiDeltaPercent, isOiSpiking: currentOiValue > oiEma14,
-            currentVolume: volumesLTF[volumesLTF.length - 1], 
-            lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
+            currentVolume: volumesLTF[volumesLTF.length - 1], lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
             avgVolume20: QuantMath.sma(volumesLTF.slice(0, -1), 20), 
             isObvBearDivergence, isObvBullDivergence,
             isBullishSFP: QuantMath.detectSFP_Advanced(highsLTF, lowsLTF, closesLTF, 'LONG'),
@@ -303,16 +285,5 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
     return () => { isMounted = false; controller.abort(); clearInterval(timer); };
   }, [symbol, intervalTime, indicatorSpecs, cmcData.btcDominanceRealtime]);
 
-  return {
-    loading,
-    lastUpdated,
-    systemError,
-    liveCapital,
-    binancePositions,
-    leverageBrackets,
-    tradeFees,
-    autoData,
-    cmcData,
-    apiMacro
-  };
+  return { loading, lastUpdated, systemError, liveCapital, binancePositions, leverageBrackets, tradeFees, autoData, cmcData, apiMacro };
 }
