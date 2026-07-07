@@ -1,10 +1,11 @@
+// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
 
 export default function useMatrixScanner({ 
   liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, 
-  dynamicPool, dynamicMinNotionals 
+  dynamicPool, dynamicMinNotionals, setSystemHealth 
 }) {
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
@@ -31,12 +32,21 @@ export default function useMatrixScanner({
   useEffect(() => {
     let isMounted = true;
 
+    // TÍCH HỢP THEO DÕI RATE LIMIT TRONG SCANNER
     const fetchWithTimeout = async (url, ms = 8000) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
         try {
+            const startPing = Date.now();
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(id);
+            const latency = Date.now() - startPing;
+            
+            const weight = response.headers.get('x-mbx-used-weight-1m');
+            if (weight && setSystemHealth && isMounted) {
+               setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
+            }
+            
             return response.ok ? await response.json() : [];
         } catch (error) {
             clearTimeout(id);
@@ -93,7 +103,6 @@ export default function useMatrixScanner({
           }
         }
 
-        // TỐI ƯU RATE LIMIT VERCEL: Giảm chunk xuống 6 để tránh lỗi 429
         const chunkSize = 6; 
         const results = [];
 
@@ -110,7 +119,6 @@ export default function useMatrixScanner({
             let macroInterval = task.interval;
             if (task.interval === '1w') macroInterval = '1d';
 
-            // CHỐNG LỖI 400: Thay /api/v3/klines bằng /fapi/v1/klines
             return Promise.all([
               fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
@@ -129,7 +137,6 @@ export default function useMatrixScanner({
           results.push(...chunkResults);
           
           if (i + chunkSize < fetchTasks.length) {
-            // Tăng thời gian nghỉ để Serverless Function dọn rác
             await new Promise(resolve => setTimeout(resolve, 500)); 
           }
         }
@@ -322,6 +329,7 @@ export default function useMatrixScanner({
                                (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
                                (l2 === 'Compression' && bbwSlopeLocal > 10);
 
+            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); 
             const hasNanoCapSynergy = 
                 simulatedRR >= 2.5 && 
                 (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));

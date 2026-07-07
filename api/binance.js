@@ -1,3 +1,4 @@
+// FILE: api/binance.js
 import crypto from 'crypto';
 
 export default async function handler(req, res) {
@@ -31,6 +32,13 @@ export default async function handler(req, res) {
             'Content-Type': 'application/x-www-form-urlencoded'
           }
         });
+
+        // Bóc tách Header Rate Limit của Binance
+        const weight1m = binanceRes.headers.get('x-mbx-used-weight-1m');
+        if (weight1m) {
+            res.setHeader('x-mbx-used-weight-1m', weight1m);
+            res.setHeader('Access-Control-Expose-Headers', 'x-mbx-used-weight-1m');
+        }
 
         const textRaw = await binanceRes.text();
         let data;
@@ -68,6 +76,13 @@ export default async function handler(req, res) {
           'Content-Type': 'application/json'
         }
       });
+
+      // Bóc tách Header Rate Limit
+      const weight1m = binanceRes.headers.get('x-mbx-used-weight-1m');
+      if (weight1m) {
+          res.setHeader('x-mbx-used-weight-1m', weight1m);
+          res.setHeader('Access-Control-Expose-Headers', 'x-mbx-used-weight-1m');
+      }
 
       const textRaw = await binanceRes.text();
       let data;
@@ -118,6 +133,13 @@ export default async function handler(req, res) {
       
       const binanceRes = await fetch(targetUrl, { headers });
       
+      // Bóc tách Header Rate Limit của Binance
+      const weight1m = binanceRes.headers.get('x-mbx-used-weight-1m');
+      if (weight1m) {
+          res.setHeader('x-mbx-used-weight-1m', weight1m);
+          res.setHeader('Access-Control-Expose-Headers', 'x-mbx-used-weight-1m');
+      }
+
       const textRaw = await binanceRes.text();
       let data;
       try {

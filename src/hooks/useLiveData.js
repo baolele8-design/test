@@ -1,7 +1,8 @@
+// FILE: src/hooks/useLiveData.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 
-export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
+export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setSystemHealth }) {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [systemError, setSystemError] = useState(false);
@@ -112,18 +113,27 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs }) {
         else if (intervalTime === '1d') mtfInterval = '1w';
 
         let macroInterval = intervalTime;
-        if (intervalTime === '1w') macroInterval = '1d'; // CHỐNG LỖI 400 KHI CHỌN KHUNG W1
+        if (intervalTime === '1w') macroInterval = '1d'; 
 
         const ts = Date.now(); 
+        
+        // TÍCH HỢP ĐO LƯỜNG LATENCY VÀ WEIGHT VÀO SAFEFETCH
         const safeFetch = async (url) => {
           try {
+            const startPing = Date.now();
             const res = await fetch(url, { signal: controller.signal });
+            const latency = Date.now() - startPing;
+            
+            const weight = res.headers.get('x-mbx-used-weight-1m');
+            if (weight && setSystemHealth && isMounted) {
+               setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
+            }
+
             if (!res.ok) return null;
             return await res.json();
           } catch (e) { return null; }
         };
 
-        // CHỐNG LỖI 400 BẰNG CÁCH DÙNG /fapi/v1/klines
         const requests = [
           safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${intervalTime}&limit=250&t=${ts}`),
           safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),

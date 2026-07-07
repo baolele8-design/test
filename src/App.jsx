@@ -1,6 +1,6 @@
 // FILE: src/App.jsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { BrainCircuit, Activity, Loader2, ServerCrash, Bell } from 'lucide-react';
+import { BrainCircuit, Activity, Loader2, ServerCrash, Bell, Server } from 'lucide-react';
 
 import QuantMath from './core/QuantMath';
 import { supabase } from './services/supabase';
@@ -37,22 +37,25 @@ export default function AntiFragileTerminal() {
   const [geminiCooldown, setGeminiCooldown] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // TÍCH HỢP STATE GIÁM SÁT RATE LIMIT VÀ ĐỘ TRỄ VERCEL
+  const [systemHealth, setSystemHealth] = useState({ weight: 0, maxWeight: 2400, latency: 0 });
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
-  // THÊM TRUY XUẤT STEPSIZE / TICKSIZE
   const { dynamicMinNotionals, dynamicPool, stepSizes, tickSizes } = useExchangeConfig();
 
+  // Truyền setSystemHealth vào các Hook gọi API
   const {
     loading, lastUpdated, systemError, liveCapital,
     binancePositions, leverageBrackets, tradeFees,
     autoData, cmcData, apiMacro
-  } = useLiveData({ symbol, intervalTime, indicatorSpecs });
+  } = useLiveData({ symbol, intervalTime, indicatorSpecs, setSystemHealth });
 
   const { 
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals
+    dynamicPool, dynamicMinNotionals, setSystemHealth
   });
 
   useEffect(() => {
@@ -547,18 +550,26 @@ BẤT DI BẤT DỊCH:
           </p>
         </div>
         
-        <div className="flex items-center gap-2 bg-slate-900/50 p-1.5 rounded border border-slate-800">
-          <select className="bg-black text-emerald-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-            {dynamicPool.map(sym => (
-              <option key={sym} value={sym}>{sym.replace('USDT', '/USDT')}</option>
-            ))}
-          </select>
-          <select className="bg-black text-blue-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={intervalTime} onChange={(e) => setIntervalTime(e.target.value)}>
-            <option value="5m">M5 (Scalp)</option><option value="15m">M15 (Day)</option><option value="1h">H1 (Swing)</option>
-            <option value="4h">H4 (Macro)</option><option value="1d">D1 (Trend)</option><option value="1w">W1 (Investment)</option>
-          </select>
-          <div className="px-3 border-l border-slate-700/50">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin text-slate-500"/> : <Activity className="w-4 h-4 text-emerald-500"/>}
+        <div className="flex items-center gap-3">
+          {/* TRACKER GIAO DIỆN HỆ THỐNG */}
+          <div className={`px-2 py-1 rounded text-[9px] font-bold border flex flex-col items-center ${systemHealth.weight > 2000 ? 'bg-red-950/50 text-red-400 border-red-900 animate-pulse' : systemHealth.weight > 1200 ? 'bg-amber-950/50 text-amber-400 border-amber-900' : 'bg-slate-900/50 text-emerald-400 border-slate-700'}`}>
+              <span>API LIMIT: {systemHealth.weight}/{systemHealth.maxWeight}</span>
+              <span className={`text-[7px] ${systemHealth.latency > 3000 ? 'text-red-500 animate-pulse' : 'text-slate-500'}`}>VERCEL RTT: {systemHealth.latency}ms</span>
+          </div>
+
+          <div className="flex items-center gap-2 bg-slate-900/50 p-1.5 rounded border border-slate-800">
+            <select className="bg-black text-emerald-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+              {dynamicPool.map(sym => (
+                <option key={sym} value={sym}>{sym.replace('USDT', '/USDT')}</option>
+              ))}
+            </select>
+            <select className="bg-black text-blue-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={intervalTime} onChange={(e) => setIntervalTime(e.target.value)}>
+              <option value="5m">M5 (Scalp)</option><option value="15m">M15 (Day)</option><option value="1h">H1 (Swing)</option>
+              <option value="4h">H4 (Macro)</option><option value="1d">D1 (Trend)</option><option value="1w">W1 (Investment)</option>
+            </select>
+            <div className="px-3 border-l border-slate-700/50">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin text-slate-500"/> : <Activity className="w-4 h-4 text-emerald-500"/>}
+            </div>
           </div>
         </div>
       </div>
@@ -575,7 +586,6 @@ BẤT DI BẤT DỊCH:
         <div className="lg:col-span-7 space-y-6">
           <LiveMetrics autoData={autoData} apiMacro={apiMacro} cmcData={cmcData} indicatorSpecs={indicatorSpecs} mvrvZScore={mvrvZScore} setMvrvZScore={setMvrvZScore} />
           <VectorState vectorRegime={vectorRegime} mvrvZScore={mvrvZScore} autoData={autoData} />
-          {/* TRUYỀN TICKSIZE VÀ STEPSIZE XUỐNG ORDER FORM */}
           <OrderForm 
             autoData={autoData} tradeSetup={tradeSetup} setTradeSetup={setTradeSetup} 
             liveCapital={liveCapital} mathCore={mathCore} tradeStats={tradeStats} 
