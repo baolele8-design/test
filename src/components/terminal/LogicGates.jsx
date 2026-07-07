@@ -59,11 +59,19 @@ export default function LogicGates({
               </ul>
             </div>
           )}
+          
+          {logicGates.isNanoOverride && (
+            <div className="bg-pink-500/20 border border-pink-500/50 p-2 rounded mt-2 text-[9px] font-bold text-pink-400 flex items-center gap-1.5 animate-pulse shadow-[0_0_10px_rgba(236,72,153,0.2)]">
+                <Zap className="w-3.5 h-3.5 shrink-0" /> NANO-CAP SNIPER (VỐN NHỎ): Bẻ khóa Hard Gates (H3/H6) nhờ R:R Siêu ngạch (>=2.5) & Dòng tiền kẹt (Squeeze/SFP). Cược rủi ro thấp!
+            </div>
+          )}
+
           {logicGates.isGoldenOverride && (
             <div className="bg-amber-500/20 border border-amber-500/50 p-2 rounded mt-2 text-[9px] font-bold text-amber-400 flex items-center gap-1.5 animate-pulse">
                 <Zap className="w-3.5 h-3.5" /> GOLDEN TICKET OVERRIDE: Setup đạt ngưỡng siêu hợp lưu (&ge; 8.5). Bẻ cong Hard Gates Regime (Transition/Compression) để tiến hành Squeeze!
             </div>
           )}
+
           {logicGates.isSniperOverride && (
             <div className="bg-purple-500/20 border border-purple-500/50 p-2 rounded mt-2 text-[9px] font-bold text-purple-400 flex items-center gap-1.5 animate-pulse">
                 <Target className="w-3.5 h-3.5 shrink-0" /> SNIPER SFP OVERRIDE: Đặc cách vượt lỗi SL quá sát (H1) nhờ cấu trúc quét SFP (Điểm &ge; 7.0). Tối ưu Position Size!
@@ -75,6 +83,7 @@ export default function LogicGates({
                 <TrendingUp className="w-3.5 h-3.5 shrink-0" /> ASYMMETRIC PAYOFF OVERRIDE: Đặc cách vượt lỗi Volume cạn (H6) nhờ R:R ròng siêu cao (&ge; 2.5). Đòn bẩy tỷ lệ cược vốn nhỏ!
             </div>
           )}
+
           <button disabled={!logicGates.isApproved} onClick={handleSaveTradeLog} className={`w-full py-3 rounded-lg font-black text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all duration-300 shadow-xl
               ${logicGates.isApproved ? 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-600' : 'bg-slate-800/20 text-slate-700 border border-slate-800 cursor-not-allowed'}`}>
             <Save className="w-4 h-4"/> LƯU VÀO SỔ TAY SUPABASE

@@ -1,26 +1,33 @@
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
-import { POOL_SYMBOLS, POOL_INTERVALS, getMinNotional } from '../config/constants';
+import { POOL_INTERVALS } from '../config/constants';
 
-export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast }) {
+export default function useMatrixScanner({ 
+  liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, 
+  dynamicPool, dynamicMinNotionals 
+}) {
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
   const [sonarEnabled, setSonarEnabled] = useState(false);
   
   const prevScannedSigRef = useRef('');
 
-  // Đưa các refs vào bên trong Hook để App.jsx không cần bận tâm nữa
+  // Refs để giữ state mới nhất trong setInterval
   const liveCapitalRef = useRef(liveCapital);
   const autoDataRef = useRef(autoData);
   const mvrvZScoreRef = useRef(mvrvZScore);
   const tradeFeesRef = useRef(tradeFees);
   const apiMacroRef = useRef(apiMacro);
+  const dynamicPoolRef = useRef(dynamicPool);
+  const dynamicMinNotionalsRef = useRef(dynamicMinNotionals);
 
   useEffect(() => { liveCapitalRef.current = liveCapital; }, [liveCapital]);
   useEffect(() => { autoDataRef.current = autoData; }, [autoData]);
   useEffect(() => { mvrvZScoreRef.current = mvrvZScore; }, [mvrvZScore]);
   useEffect(() => { tradeFeesRef.current = tradeFees; }, [tradeFees]);
   useEffect(() => { apiMacroRef.current = apiMacro; }, [apiMacro]);
+  useEffect(() => { dynamicPoolRef.current = dynamicPool; }, [dynamicPool]);
+  useEffect(() => { dynamicMinNotionalsRef.current = dynamicMinNotionals; }, [dynamicMinNotionals]);
 
   // Động cơ Scanner chính
   useEffect(() => {
@@ -43,6 +50,9 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
       if (isScanningBackground) return;
       setIsScanningBackground(true);
       
+      const currentPool = dynamicPoolRef.current || [];
+      const currentMinNotionals = dynamicMinNotionalsRef.current || {};
+
       try {
         const ts = Date.now();
         const scanResultsPool = [];
@@ -54,7 +64,8 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
                 fetchWithTimeout(`/api/binance?path=/fapi/v1/premiumIndex&t=${ts}`, 10000)
             ]);
 
-            POOL_SYMBOLS.forEach(sym => {
+            // Dùng currentPool để đồng bộ hoàn toàn với danh sách coin động
+            currentPool.forEach(sym => {
                 const book = Array.isArray(allBook) ? allBook.find(b => b.symbol === sym) : null;
                 const prem = Array.isArray(allPrem) ? allPrem.find(p => p.symbol === sym) : null;
                 
@@ -72,11 +83,11 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
                 }
             });
         } catch (e) {
-            POOL_SYMBOLS.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, funding: 0.0002 }; });
+            currentPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, funding: 0.0002 }; });
         }
 
         const fetchTasks = [];
-        for (const targetSymbol of POOL_SYMBOLS) {
+        for (const targetSymbol of currentPool) {
           for (const targetInterval of POOL_INTERVALS) {
             fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
           }
@@ -208,8 +219,8 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
             const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * currentMultiplier; 
             const dynamicSlDistance = riskDiffTech + slippageBuffer; 
             
-            const realSpread = realtimeMetrics[targetSymbol].spread;
-            const realFunding = realtimeMetrics[targetSymbol].funding;
+            const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
+            const realFunding = realtimeMetrics[targetSymbol]?.funding || 0.0002;
             
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
@@ -300,19 +311,27 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
                                (dir === 'LONG' && currentMvrv < 1.0 && checkS3) || 
                                (dir === 'SHORT' && currentMvrv > 2.5 && checkS3);
 
+            // LOGIC RIÊNG CHO NANO-CAP (VỐN NHỎ)
+            // Lấy ra OI hiện tại để so sánh
+            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); // Lấy Vol giả lập OI nếu ko gọi đc trực tiếp
+            const hasNanoCapSynergy = 
+                simulatedRR >= 2.5 && 
+                (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike);
+
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
+            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 6.5;
 
             const finalRegimeCheck = isRegimeSafe || isGoldenOverride;
-            const finalVolCheck = isVolSafe || isHighRROverride;
-            const finalSLCheck = isSLSafe || isSniperOverride;
+            const finalVolCheck = isVolSafe || isHighRROverride || isNanoCapOverride;
+            const finalSLCheck = isSLSafe || isSniperOverride || isNanoCapOverride;
 
             const isApproved = (isRRSafe && finalRegimeCheck && finalVolCheck && finalSLCheck);
             
             if (!isApproved || embeddedScore < 6.5) continue; 
 
-            const currentMinNotional = getMinNotional(targetSymbol);
+            const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
             const riskAmountUSD = capitalSafe * 0.01; 
             const slPercentForSize = dynamicSlDistance / entry; 
@@ -327,7 +346,8 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
             let overrideTag = '';
-            if (isSniperOverride) overrideTag = '🎯 SNIPER';
+            if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP (VỐN NHỎ)';
+            else if (isSniperOverride) overrideTag = '🎯 SNIPER';
             else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
             else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
 
@@ -370,7 +390,7 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
     runCrossAssetScan();
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
-  }, []); // Dependency array rỗng hoàn toàn an toàn nhờ Refs
+  }, []); 
 
   // Động cơ Sonar Ping
   useEffect(() => {

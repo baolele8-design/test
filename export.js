@@ -10,7 +10,7 @@ const targetPaths = [
     'tailwind.config.js', 
     'index.html'
 ];
-const outputFile = 'AI_CODEBASE.txt';
+const outputFile = 'AI_CODEBASE.md';
 
 // Đóng dấu TimeStamp vào đầu file để LLM phân biệt các phiên bản code
 const now = new Date();

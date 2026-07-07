@@ -1,6 +1,5 @@
 import React from 'react';
 import { Zap, TrendingUp, TrendingDown, BarChart3, Lock } from 'lucide-react';
-import { getMinNotional } from '../../config/constants';
 
 export default function OrderForm({
   autoData,
@@ -75,8 +74,10 @@ export default function OrderForm({
             {mathCore.hasMinNotionalError && (
               <div className="text-[8px] text-red-500 font-bold text-right -mt-2">⚠️ LỖI: SIZE BỊ ÉP VƯỢT RỦI RO SINH TỒN ({'>'} 5% VỐN)</div>
             )}
+            
+            {/* Cảnh báo Min Notional mới lấy trực tiếp thông qua logic toán học */}
             {!mathCore.hasMinNotionalError && mathCore.isSizeForcedByExchange && (
-              <div className="text-[8px] text-amber-500 font-bold text-right -mt-2">⚠️ CẢNH BÁO: SIZE ĐÃ BỊ ÉP LÊN MỨC TỐI THIỂU CỦA SÀN (${getMinNotional(symbol)})</div>
+              <div className="text-[8px] text-amber-500 font-bold text-right -mt-2">⚠️ CẢNH BÁO: SIZE ĐÃ BỊ ÉP LÊN MỨC TỐI THIỂU CỦA SÀN KỲ HẠN</div>
             )}
 
             <div className="flex justify-between items-end border-b border-slate-800 pb-1.5">
