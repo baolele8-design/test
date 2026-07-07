@@ -13,9 +13,6 @@ import AiAudit from './components/terminal/AiAudit';
 import TradeJournal from './components/terminal/TradeJournal';
 
 export default function AntiFragileTerminal() {
-  // ============================================================================
-  // A. STATE ĐIỀU KHIỂN
-  // ============================================================================
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [intervalTime, setIntervalTime] = useState('15m'); 
   const [toast, setToast] = useState('');
@@ -37,18 +34,18 @@ export default function AntiFragileTerminal() {
   const [aiAnalysis, setAiAnalysis] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [geminiCooldown, setGeminiCooldown] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  const [isSyncing, setIsSyncing] = useState(false); //(State cho Auto Sync)
-  // ============================================================================
-  // TẢI MIN NOTIONAL TỪ BINANCE EXCHANGE INFO NGAY KHI APP KHỞI ĐỘNG
-  // ============================================================================
+  // Tải Min Notional từ Binance
   const [minNotionalMap, setMinNotionalMap] = useState({
-    BTCUSDT: 50, ETHUSDT: 20, SOLUSDT: 5, BNBUSDT: 5, LINKUSDT: 20, XRPUSDT: 5, ADAUSDT: 5, AVAXUSDT: 5 // Fallback tức thì trước khi API trả về
+    BTCUSDT: 50, ETHUSDT: 20, SOLUSDT: 5, BNBUSDT: 5, LINKUSDT: 20, XRPUSDT: 5, ADAUSDT: 5, AVAXUSDT: 5 
   });
+
   useEffect(() => {
     const fetchExchangeInfo = async () => {
       try {
-        const res = await fetch(`/api/binance?path=/fapi/v1/exchangeInfo`);
+        // Gọi thẳng Binance API để không tốn tài nguyên Vercel
+        const res = await fetch(`https://fapi.binance.com/fapi/v1/exchangeInfo`);
         if (!res.ok) return;
         const data = await res.json();
         if (data && data.symbols) {
@@ -66,17 +63,14 @@ export default function AntiFragileTerminal() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
-  // ============================================================================
-  // B. KẾT NỐI HOOKS (DỮ LIỆU)
-  // ============================================================================
   const {
     loading, lastUpdated, systemError, liveCapital,
     binancePositions, leverageBrackets, tradeFees,
     autoData, cmcData, apiMacro
   } = useLiveData({ symbol, intervalTime, indicatorSpecs });
 
-  // Bơm minNotionalMap vào Radar
-  const { scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled } = useMatrixScanner({ 
+  // [CẢI TIẾN LỚN]: Lấy ra combinedPool từ MatrixScanner để đưa lên UI Dropdown
+  const { scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled, combinedPool } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, minNotionalMap 
   });
 
@@ -604,15 +598,10 @@ BẤT DI BẤT DỊCH:
         
         <div className="flex items-center gap-2 bg-slate-900/50 p-1.5 rounded border border-slate-800">
           <select className="bg-black text-emerald-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={symbol} onChange={(e) => setSymbol(e.target.value)}>
-            <option value="BTCUSDT">BTC/USDT</option>
-            <option value="ETHUSDT">ETH/USDT</option>
-            <option value="SOLUSDT">SOL/USDT</option>
-            <option value="BNBUSDT">BNB/USDT</option>
-            <option value="LINKUSDT">LINK/USDT</option>
-            <option value="XRPUSDT">XRP/USDT</option>
-            <option value="ADAUSDT">ADA/USDT</option>
-            <option value="DASHUSDT">DASH/USDT</option>
-            <option value="AVAXUSDT">AVAX/USDT</option>
+            {/* [CẢI TIẾN LỚN]: Đổ mảng combinedPool (Trending) ra UI */}
+            {(combinedPool && combinedPool.length > 0 ? combinedPool : ['BTCUSDT']).map(sym => (
+               <option key={sym} value={sym}>{sym.replace('USDT', '/USDT')}</option>
+            ))}
           </select>
           <select className="bg-black text-blue-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={intervalTime} onChange={(e) => setIntervalTime(e.target.value)}>
             <option value="5m">M5 (Scalp)</option><option value="15m">M15 (Day)</option><option value="1h">H1 (Swing)</option>

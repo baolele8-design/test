@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 07, 2026, 07:59 PM ---
+--- START OF FILE Paste Jul 07, 2026, 08:12 PM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -48,7 +48,9 @@ export default function AntiFragileTerminal() {
   // ============================================================================
   // TẢI MIN NOTIONAL TỪ BINANCE EXCHANGE INFO NGAY KHI APP KHỞI ĐỘNG
   // ============================================================================
-  const [minNotionalMap, setMinNotionalMap] = useState({});
+  const [minNotionalMap, setMinNotionalMap] = useState({
+    BTCUSDT: 50, ETHUSDT: 20, SOLUSDT: 5, BNBUSDT: 5, LINKUSDT: 20, XRPUSDT: 5, ADAUSDT: 5, AVAXUSDT: 5 // Fallback tức thì trước khi API trả về
+  });
   useEffect(() => {
     const fetchExchangeInfo = async () => {
       try {
@@ -56,12 +58,10 @@ export default function AntiFragileTerminal() {
         if (!res.ok) return;
         const data = await res.json();
         if (data && data.symbols) {
-           const newMap = {};
+           const newMap = { ...minNotionalMap }; 
            data.symbols.forEach(symObj => {
                const notionalFilter = symObj.filters.find(f => f.filterType === 'MIN_NOTIONAL');
-               if (notionalFilter) {
-                   newMap[symObj.symbol] = parseFloat(notionalFilter.notional);
-               }
+               if (notionalFilter) newMap[symObj.symbol] = parseFloat(notionalFilter.notional);
            });
            setMinNotionalMap(newMap);
         }
@@ -2028,8 +2028,6 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
   const [sonarEnabled, setSonarEnabled] = useState(false);
-  
-  // [CẢI TIẾN] Pool kết hợp: 9 coin gốc + Coin Động
   const [combinedPool, setCombinedPool] = useState(POOL_SYMBOLS); 
   
   const prevScannedSigRef = useRef('');
@@ -2045,7 +2043,6 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
   useEffect(() => { tradeFeesRef.current = tradeFees; }, [tradeFees]);
   useEffect(() => { apiMacroRef.current = apiMacro; }, [apiMacro]);
 
-  // [CẢI TIẾN] ĐỘNG CƠ CẬP NHẬT POOL KÉP (Chạy mỗi 15 phút)
   useEffect(() => {
     let isMounted = true;
     const fetchTrendingCoins = async () => {
@@ -2060,26 +2057,21 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
            const data = await binanceRes.json();
            const validMarkets = data.filter(d => d.symbol.endsWith('USDT') && !d.symbol.includes('USDC'));
            validMarkets.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
-           binanceAlts = validMarkets.slice(0, 10).map(d => d.symbol); // Top 10 Volume Binance
+           binanceAlts = validMarkets.slice(0, 10).map(d => d.symbol); 
         }
 
         let cmcAlts = [];
         if (cmcRes.ok) {
            const cmcData = await cmcRes.json();
-           if (cmcData.trendingSymbols) cmcAlts = cmcData.trendingSymbols; // Trending CMC
+           if (cmcData.trendingSymbols) cmcAlts = cmcData.trendingSymbols; 
         }
 
-        // Merge: 9 Coin Gốc + Top Binance + Top CMC (Loại bỏ trùng lặp dùng Set)
         const mergedSet = new Set([...POOL_SYMBOLS, ...binanceAlts, ...cmcAlts]);
-        const finalPool = Array.from(mergedSet).slice(0, 25); // Limit tối đa quét 25 coin 1 vòng để tránh Rate Limit
+        const finalPool = Array.from(mergedSet).slice(0, 25); 
 
-        if (isMounted) {
-          setCombinedPool(finalPool);
-          console.log("🔥 ĐÃ CẬP NHẬT ĐỘNG CƠ MATRIX POOL:", finalPool.length, "Coins");
-        }
-      } catch (e) { console.error("Lỗi xoay tua Pool", e); }
+        if (isMounted) setCombinedPool(finalPool);
+      } catch (e) { }
     };
-
     fetchTrendingCoins();
     const poolTimer = setInterval(fetchTrendingCoins, 15 * 60 * 1000); 
     return () => { isMounted = false; clearInterval(poolTimer); };
@@ -2111,7 +2103,6 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
                 fetchWithTimeout(`/api/binance?path=/api/v3/ticker/bookTicker&t=${ts}`, 10000),
                 fetchWithTimeout(`/api/binance?path=/fapi/v1/premiumIndex&t=${ts}`, 10000)
             ]);
-
             combinedPool.forEach(sym => {
                 const book = Array.isArray(allBook) ? allBook.find(b => b.symbol === sym) : null;
                 const prem = Array.isArray(allPrem) ? allPrem.find(p => p.symbol === sym) : null;
@@ -2123,7 +2114,6 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
         } catch (e) { combinedPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, funding: 0.0002 }; }); }
 
         const fetchTasks = [];
-        // [CẢI TIẾN]: Quét trên combinedPool thay vì POOL_SYMBOLS
         for (const targetSymbol of combinedPool) { 
           for (const targetInterval of POOL_INTERVALS) { fetchTasks.push({ symbol: targetSymbol, interval: targetInterval }); }
         }
@@ -2143,9 +2133,11 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
               fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${task.interval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${task.interval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
-            ]).then(([klines, takerData, lsData, klinesMTF]) => ({
-              ...task, klines, klinesMTF, 
+              fetchWithTimeout(`/api/binance?path=/api/v3/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
+              // [VÁ LỖI NẶNG SỐ 2]: Lấy chính xác OI của đồng coin đang quét để phục vụ Micro-Squeeze
+              fetchWithTimeout(`/api/binance?path=/futures/data/openInterestHist&symbol=${task.symbol}&period=${task.interval}&limit=14&t=${ts}`)
+            ]).then(([klines, takerData, lsData, klinesMTF, oiHistData]) => ({
+              ...task, klines, klinesMTF, oiHistData,
               localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
               localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
             }));
@@ -2159,7 +2151,7 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
           if (result.status !== 'fulfilled' || !Array.isArray(result.value.klines) || result.value.klines.length < 50) continue;
           
           try {
-            const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, localTakerRatio, localLsRatio } = result.value;
+            const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, localTakerRatio, localLsRatio, oiHistData } = result.value;
             let closesMTF = Array.isArray(klinesMTF) && klinesMTF.length >= 50 ? klinesMTF.map(d => parseFloat(d[4])) : klines.map(d => parseFloat(d[4]));
             const highs = klines.map(d => parseFloat(d[2])); const lows = klines.map(d => parseFloat(d[3]));
             const closes = klines.map(d => parseFloat(d[4])); const quoteVolumes = klines.map(d => parseFloat(d[7])); 
@@ -2169,6 +2161,12 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
             const rsi = QuantMath.rsi(closes, 14);
             const cmf = QuantMath.cmf(highs, lows, closes, quoteVolumes, 20); 
             
+            // Xử lý OI Logic cục bộ
+            const oiValues = Array.isArray(oiHistData) ? oiHistData.map(d => parseFloat(d.sumOpenInterestValue) || 0) : [0];
+            const oiEma14Local = QuantMath.ema(oiValues, 14);
+            const currentOiLocal = oiValues[oiValues.length - 1] || 0;
+            const isOiSpikingLocal = currentOiLocal > oiEma14Local;
+
             const bbwHist = [];
             for (let i = 20; i < closes.length; i++) { bbwHist.push(QuantMath.bollinger(closes.slice(0, i+1), 20, 2.0).bbw); }
             const bollinger20 = QuantMath.bollinger(closes, 20, 2.0);
@@ -2269,6 +2267,7 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
             if ((dir === 'LONG' && isTripleTrendBull) || (dir === 'SHORT' && isTripleTrendBear)) embeddedScore += 1.5;
             if (adxValue > 35 && checkS6) embeddedScore += 1.5;
             
+            // Macro Global
             const currentMvrv = mvrvZScoreRef?.current || 0.23;
             const btcDomSlope = autoDataRef?.current?.btcDomSlope || 0;
             const btcDomValue = autoDataRef?.current?.btcDomValue || 55.0;
@@ -2281,28 +2280,57 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
             if (dir === 'SHORT' && currentMvrv <= 0.8) embeddedScore -= 1.5;
 
             // ====================================================================
-            // [CẢI TIẾN LỖI ĐỒNG BỘ LOGIC GATES]: 
-            // Cập nhật bộ Override giống hệt App.jsx để MatrixScanner không loại sai setup.
+            // [VÁ LỖI NẶNG SỐ 1]: ĐỒNG BỘ TUYỆT ĐỐI HỆ LOGIC GATES VỚI APP.JSX
             // ====================================================================
             const requiredRR = bbwRank > 80 ? 1.5 : 1.2;
-            const isRRSafe = simulatedRR >= requiredRR;
-            const isRegimeSafe = l1 !== 'Transition' && l2 !== 'Compression';
-            const isVolSafe = closedVolume >= (avgVolume20 * 0.4);
-            const isSLSafe = riskDiffTech > (atr14 * 0.5);
+            
+            // Tái lập chính xác 5 Hard Gates cốt lõi 
+            const h1_passed = realSpread < 0.2 && riskDiffTech > (atr14 * 0.5);
+            const h2_passed = simulatedRR >= requiredRR;
+            const h3_1_passed = l1 !== 'Transition';
+            const h3_2_passed = l2 !== 'Compression';
+            const h6_passed = closedVolume >= (avgVolume20 * 0.4);
+
+            const hardGatesScanner = [
+              { id: 'h1', passed: h1_passed }, { id: 'h2', passed: h2_passed },
+              { id: 'h3_1', passed: h3_1_passed }, { id: 'h3_2', passed: h3_2_passed }, { id: 'h6', passed: h6_passed }
+            ];
+
+            const hardPassed = hardGatesScanner.every(g => g.passed);
+            const failedGates = hardGatesScanner.filter(g => !g.passed);
+
+            // Điều kiện An Toàn
             const isSafeFromKnife = dir === 'LONG' ? (cmf > 0.15 && rsi > 35) : (cmf < -0.15 && rsi < 65);
             const hasSynergy = (l2 === 'Compression' && checkS2 && checkS6) || (l2 === 'Extreme' && checkS3 && checkS4) || (localVolSpike && !checkS5 && checkS6) || (dir === 'LONG' && targetSymbol !== 'BTCUSDT' && btcDomSlope < -0.5) || isTripleTrendBull || isTripleTrendBear || (adxValue > 35 && checkS6) || (dir === 'LONG' && currentMvrv < 1.0 && checkS3) || (dir === 'SHORT' && currentMvrv > 2.5 && checkS3);
 
-            const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
-            const isCapitulationSniper = (!isSLSafe || !isRegimeSafe) && isVolSafe && isRRSafe && checkS3 && (dir === 'LONG' ? (rsi < 30 && cmf > 0.1) : (rsi > 70 && cmf < -0.1)) && embeddedScore >= 7.0;
-            const isMicroSqueeze = (!isRegimeSafe || !isVolSafe) && isSLSafe && isRRSafe && (l2 === 'Compression' || bbwRank < 25) && (autoDataRef.current?.isOiSpiking || false) && (dir === 'LONG' ? cmf > 0.1 : cmf < -0.1) && embeddedScore >= 6.5;
-            const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
+            // OVERRIDES ĐỒNG BỘ (Bê y nguyên từ App.jsx qua)
+            const isOnlyRegimeFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h3_2');
+            const isGoldenOverride = isOnlyRegimeFailed && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
 
-            const hardPassed = isSLSafe && isRRSafe && isRegimeSafe && isVolSafe;
+            const isCapitulationSniper = failedGates.length > 0 
+                && failedGates.every(g => g.id === 'h1' || g.id === 'h3_1') 
+                && checkS3 
+                && (dir === 'LONG' ? (rsi < 30 && cmf > 0.1) : (rsi > 70 && cmf < -0.1)) 
+                && embeddedScore >= 7.0;
+
+            const isMicroSqueeze = failedGates.length > 0
+                && failedGates.every(g => g.id === 'h3_1' || g.id === 'h6')
+                && (l2 === 'Compression' || bbwRank < 25)
+                && isOiSpikingLocal // [ĐÃ SỬA VỚI DATA OI RIÊNG LẺ]
+                && (dir === 'LONG' ? cmf > 0.1 : cmf < -0.1)
+                && embeddedScore >= 6.5;
+
+            const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
+            const isHighRROverride = isOnlyVolFailed && simulatedRR >= 2.5 && embeddedScore >= 7.0;
+
+            // QUYẾT ĐỊNH CUỐI CÙNG
             const isApproved = (hardPassed || isGoldenOverride || isCapitulationSniper || isMicroSqueeze || isHighRROverride) && (embeddedScore >= 6.5);
             
             if (!isApproved) continue; 
 
-            // [CẢI TIẾN]: Sử dụng Min Notional Động từ API sàn
+            // ====================================================================
+            // ĐÁNH GIÁ RỦI RO SINH TỒN (H5 Implicitly)
+            // ====================================================================
             const currentMinNotional = minNotionalMap[targetSymbol] || 5.0; 
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
             const riskAmountUSD = capitalSafe * 0.01; 
@@ -2334,7 +2362,6 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
         scanResultsPool.sort((a, b) => parseFloat(b.theoreticalRR) - parseFloat(a.theoreticalRR));
         if (isMounted) setScannedTopSetups(scanResultsPool.length === 0 ? [{ isEmpty: true }] : scanResultsPool.slice(0, 10));
       } catch (err) {
-        console.error("Scanner Hard Crash:", err);
         if (isMounted) setScannedTopSetups([{ isEmpty: true, isError: true, msg: "Vercel Timeout hoặc Lỗi kết nối" }]);
       } finally { if (isMounted) setIsScanningBackground(false); }
     };
@@ -2342,7 +2369,7 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
     runCrossAssetScan();
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
-  }, [minNotionalMap]); // Re-run khi Map Min Notional được tải
+  }, [minNotionalMap]); 
 
   useEffect(() => {
     if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) { prevScannedSigRef.current = ''; return; }
@@ -2350,9 +2377,9 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
     if (prevScannedSigRef.current !== '' && currentSig !== prevScannedSigRef.current) {
         try {
             const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-            audio.volume = 0.6; audio.play().catch(e => console.log("Trình duyệt chặn Auto-play:", e));
+            audio.volume = 0.6; audio.play().catch(e => {});
             if (showToast) showToast("🎯 RADAR PING: Phát hiện biến động Setup mới trên Scanner!");
-        } catch (error) { console.error("Lỗi âm thanh:", error); }
+        } catch (error) { }
     }
     prevScannedSigRef.current = currentSig;
   }, [scannedTopSetups, sonarEnabled, showToast]);

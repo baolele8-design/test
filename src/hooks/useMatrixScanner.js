@@ -27,7 +27,7 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
     const fetchTrendingCoins = async () => {
       try {
         const [binanceRes, cmcRes] = await Promise.all([
-          fetch(`/api/binance?path=/fapi/v1/ticker/24hr&t=${Date.now()}`),
+          fetch(`https://fapi.binance.com/fapi/v1/ticker/24hr`),
           fetch(`/api/cmc`)
         ]);
 
@@ -62,7 +62,8 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
         try {
-            const response = await fetch(url, { signal: controller.signal });
+            //  Gọi thẳng Public CORS API của Binance, né Vercel Proxy để tránh 504 Timeout Error
+            const response = await fetch(`https://fapi.binance.com${url}`, { signal: controller.signal });
             clearTimeout(id);
             return response.ok ? await response.json() : [];
         } catch (error) { clearTimeout(id); return []; }
@@ -79,8 +80,8 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
         
         try {
             const [allBook, allPrem] = await Promise.all([
-                fetchWithTimeout(`/api/binance?path=/api/v3/ticker/bookTicker&t=${ts}`, 10000),
-                fetchWithTimeout(`/api/binance?path=/fapi/v1/premiumIndex&t=${ts}`, 10000)
+                fetchDirectBinance(`/fapi/v1/ticker/bookTicker`, 10000),
+                fetchDirectBinance(`/fapi/v1/premiumIndex`, 10000)
             ]);
             combinedPool.forEach(sym => {
                 const book = Array.isArray(allBook) ? allBook.find(b => b.symbol === sym) : null;
@@ -97,7 +98,7 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
           for (const targetInterval of POOL_INTERVALS) { fetchTasks.push({ symbol: targetSymbol, interval: targetInterval }); }
         }
 
-        const chunkSize = 9; 
+        const chunkSize = 3; 
         const results = [];
         for (let i = 0; i < fetchTasks.length; i += chunkSize) {
           const chunk = fetchTasks.slice(i, i + chunkSize);
