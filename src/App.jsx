@@ -507,9 +507,22 @@ BẤT DI BẤT DỊCH:
     const sl = dir === 'LONG' ? suggestedEntry - (slMult * autoData.atr14) : suggestedEntry + (slMult * autoData.atr14);
     const tp1 = dir === 'LONG' ? suggestedEntry + (tpMult * autoData.atr14) : suggestedEntry - (tpMult * autoData.atr14);
 
-    setTradeSetup(prev => ({ ...prev, direction: dir, execution: execType, entry: parseFloat(suggestedEntry.toFixed(4)), slTech: parseFloat(sl.toFixed(4)), tp1: parseFloat(tp1.toFixed(4)) }));
+    // BẢN VÁ: Đọc chính xác độ dài thập phân của đồng coin hiện tại (tickSize)
+    const tick = tickSizes[symbol] || 0.0001;
+    const tickStr = parseFloat(tick).toString();
+    const precision = tickStr.includes('e-') ? parseInt(tickStr.split('e-')[1]) : (tickStr.includes('.') ? tickStr.split('.')[1].length : 4);
+
+    setTradeSetup(prev => ({ 
+      ...prev, 
+      direction: dir, 
+      execution: execType, 
+      entry: Number(suggestedEntry.toFixed(precision)), 
+      slTech: Number(sl.toFixed(precision)), 
+      tp1: Number(tp1.toFixed(precision)) 
+    }));
+    
     if (!(autoData.rsi >= 45 && autoData.rsi <= 55 && (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme'))) {
-        showToast("✅ Đã khởi tạo Template. Hãy check cảnh báo Min Notional bên dưới!");
+        showToast("✅ Đã khởi tạo Template động theo TickSize của Binance!");
     }
   };
 

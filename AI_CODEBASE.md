@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 07, 2026, 10:56 PM ---
+--- START OF FILE Paste Jul 07, 2026, 11:32 PM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -1074,17 +1074,22 @@ export default function OrderForm({
                 });
             }
 
-            // Gọi qua Vercel API của bạn
-            const res = await fetch('/api/binance', {
+            // ---------------------------------------------------------
+            // CẦU NỐI LƯỢNG TỬ: CHUYỂN HƯỚNG BẮN LỆNH XUỐNG LOCAL BRIDGE
+            // ---------------------------------------------------------
+            const LOCAL_BRIDGE_URL = 'http://localhost:1337/api/execute-batch';
+            
+            const res = await fetch(LOCAL_BRIDGE_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ batchOrders: batch })
             });
             const data = await res.json();
             
-            if (!res.ok) throw new Error(data.details?.msg || data.error || 'Binance Rejected');
-            setExecStatus('✅ ĐÃ KHỚP CỤM LỆNH LIÊN HOÀN!');
+            if (!res.ok) throw new Error(data.details?.msg || data.error || 'Bridge Rejected');
+            setExecStatus('✅ ĐÃ KHỚP CỤM LỆNH LIÊN HOÀN (LOCAL EXECUTION)!');
             setTimeout(() => setExecStatus(''), 5000);
+            // ---------------------------------------------------------
         } else {
             setExecStatus('❌ Cụm lệnh hiện chỉ hỗ trợ Futures.');
         }

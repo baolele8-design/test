@@ -21,9 +21,15 @@ export default function OrderForm({
         const step = stepSizes[symbol] || 0.001;
         const tick = tickSizes[symbol] || 0.001;
 
-        // Hàm giúp định dạng số chống lỗi 400 PRICE_FILTER và LOT_SIZE của Binance
+        // BẢN VÁ: Xử lý hoàn hảo số thập phân bình thường & dạng Khoa học (1e-6)
         const formatPrecision = (val, size) => {
-            const precision = size.toString().includes('.') ? size.toString().split('.')[1].length : 0;
+            const sizeStr = parseFloat(size).toString();
+            let precision = 0;
+            if (sizeStr.includes('e-')) {
+                precision = parseInt(sizeStr.split('e-')[1]);
+            } else if (sizeStr.includes('.')) {
+                precision = sizeStr.split('.')[1].length;
+            }
             return parseFloat(val).toFixed(precision);
         };
 
@@ -38,7 +44,7 @@ export default function OrderForm({
             const side = tradeSetup.direction === 'LONG' ? 'BUY' : 'SELL';
             const exitSide = tradeSetup.direction === 'LONG' ? 'SELL' : 'BUY';
 
-            // 1. Lệnh Entry (Market không gửi price)
+            // 1. Lệnh Entry (Giữ nguyên, hoàn toàn chuẩn xác)
             batch.push({
                 symbol: symbol,
                 side: side,
@@ -47,24 +53,24 @@ export default function OrderForm({
                 ...(tradeSetup.execution === 'LIMIT' ? { price: finalEntry, timeInForce: 'GTC' } : {})
             });
 
-            // 2. Lệnh Stoploss Cứng
+            // 2. Lệnh Stoploss Cứng (BẢN VÁ: GỠ BỎ timeInForce)
             if (parseFloat(finalSl) > 0) {
                 batch.push({
                     symbol: symbol, side: exitSide, type: 'STOP_MARKET',
-                    stopPrice: finalSl, closePosition: "true", timeInForce: 'GTE_GTC'
+                    stopPrice: finalSl, closePosition: "true" 
                 });
             }
 
-            // 3. Lệnh Take Profit
+            // 3. Lệnh Take Profit (BẢN VÁ: GỠ BỎ timeInForce)
             if (parseFloat(finalTp) > 0) {
                 batch.push({
                     symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET',
-                    stopPrice: finalTp, closePosition: "true", timeInForce: 'GTE_GTC'
+                    stopPrice: finalTp, closePosition: "true" 
                 });
             }
 
             // ---------------------------------------------------------
-            // CẦU NỐI LƯỢNG TỬ: CHUYỂN HƯỚNG BẮN LỆNH XUỐNG LOCAL BRIDGE
+            // CẦU NỐI LƯỢNG TỬ (Gửi mảng batch đã dọn dẹp)
             // ---------------------------------------------------------
             const LOCAL_BRIDGE_URL = 'http://localhost:1337/api/execute-batch';
             
@@ -78,7 +84,6 @@ export default function OrderForm({
             if (!res.ok) throw new Error(data.details?.msg || data.error || 'Bridge Rejected');
             setExecStatus('✅ ĐÃ KHỚP CỤM LỆNH LIÊN HOÀN (LOCAL EXECUTION)!');
             setTimeout(() => setExecStatus(''), 5000);
-            // ---------------------------------------------------------
         } else {
             setExecStatus('❌ Cụm lệnh hiện chỉ hỗ trợ Futures.');
         }
