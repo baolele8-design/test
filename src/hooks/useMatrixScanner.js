@@ -7,9 +7,9 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
   const [isScanningBackground, setIsScanningBackground] = useState(false);
   const [sonarEnabled, setSonarEnabled] = useState(false);
   
+  const [dynamicPool, setDynamicPool] = useState(POOL_SYMBOLS);
   const prevScannedSigRef = useRef('');
 
-  // Đưa các refs vào bên trong Hook để App.jsx không cần bận tâm nữa
   const liveCapitalRef = useRef(liveCapital);
   const autoDataRef = useRef(autoData);
   const mvrvZScoreRef = useRef(mvrvZScore);
@@ -21,6 +21,45 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
   useEffect(() => { mvrvZScoreRef.current = mvrvZScore; }, [mvrvZScore]);
   useEffect(() => { tradeFeesRef.current = tradeFees; }, [tradeFees]);
   useEffect(() => { apiMacroRef.current = apiMacro; }, [apiMacro]);
+
+  // ĐỘNG CƠ XOAY TUA NARRATIVE (Chạy mỗi 15 phút)
+  useEffect(() => {
+    let isMounted = true;
+    const fetchTrendingCoins = async () => {
+      try {
+        // Gọi API 24h ticker qua Proxy Vercel
+        const res = await fetch(`/api/binance?path=/fapi/v1/ticker/24hr&t=${Date.now()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        // Lọc các cặp USDT, loại bỏ Stablecoin/Token nhiễu
+        const validMarkets = data.filter(d => 
+          d.symbol.endsWith('USDT') && 
+          !d.symbol.includes('USDC') && !d.symbol.includes('TUSD')
+        );
+
+        // Sort theo Quote Volume (Dòng tiền mạnh nhất)
+        validMarkets.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+        
+        // Cố định BTC, ETH. Bốc thêm 7 Altcoin top đầu Volume.
+        const topAlts = validMarkets
+          .filter(d => d.symbol !== 'BTCUSDT' && d.symbol !== 'ETHUSDT')
+          .slice(0, 7)
+          .map(d => d.symbol);
+
+        const newPool = ['BTCUSDT', 'ETHUSDT', ...topAlts];
+        
+        if (isMounted) {
+          setDynamicPool(newPool);
+          console.log("🔥 ĐÃ XOAY TUA NARRATIVE TREND:", newPool);
+        }
+      } catch (e) { console.error("Lỗi xoay tua Pool", e); }
+    };
+
+    fetchTrendingCoins();
+    const poolTimer = setInterval(fetchTrendingCoins, 15 * 60 * 1000); // 15 phút 1 lần
+    return () => { isMounted = false; clearInterval(poolTimer); };
+  }, []);
 
   // Động cơ Scanner chính
   useEffect(() => {
@@ -76,7 +115,8 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
         }
 
         const fetchTasks = [];
-        for (const targetSymbol of POOL_SYMBOLS) {
+        // [CẬP NHẬT Ở ĐÂY]: Dùng dynamicPool thay vì POOL_SYMBOLS
+        for (const targetSymbol of dynamicPool) { 
           for (const targetInterval of POOL_INTERVALS) {
             fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
           }
@@ -327,8 +367,9 @@ export default function useMatrixScanner({ liveCapital, autoData, mvrvZScore, tr
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
             let overrideTag = '';
-            if (isSniperOverride) overrideTag = '🎯 SNIPER';
+            if (isCapitulationSniper) overrideTag = '🎯 CAPI-SNIPER';
             else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
+            else if (isMicroSqueeze) overrideTag = '🗜️ MICRO-SQUEEZE';
             else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
 
             scanResultsPool.push({

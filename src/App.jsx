@@ -298,18 +298,47 @@ export default function AntiFragileTerminal() {
 
     const hardPassed = hardGates.every(g => g.passed);
     const failedGates = hardGates.filter(g => !g.passed);
-    const isOnlyRegimeFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h3_2');
+    
     const isSafeFromKnife = tradeSetup.direction === 'LONG' ? (autoData.cmf > 0.15 && autoData.rsi > 35) : (autoData.cmf < -0.15 && autoData.rsi < 65);
+    const isOnlyRegimeFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h3_2');
     const isGoldenOverride = isOnlyRegimeFailed && (score >= 8.5) && synergyText !== "" && isSafeFromKnife;
     
-    const isOnlySLFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h1');
-    const isSniperOverride = isOnlySLFailed && checkS3 && score >= 7.0;
+    // ========================================================================
+    // 🧠 CHIẾN THUẬT 1: CAPITULATION SNIPER (Săn Râu Bắt Đáy/Đỉnh Khắc Nghiệt)
+    // ========================================================================
+    // Bỏ qua lỗi H1 (SL quá sát) VÀ H3_1 (Ngược Trend). 
+    // Điều kiện: RSI cực đại (< 30 hoặc > 70) + Phải có mô hình SFP + Dòng tiền CMF đang ngầm gom (> 0.1)
+    const isCapitulationSniper = failedGates.length > 0 
+      && failedGates.every(g => g.id === 'h1' || g.id === 'h3_1') 
+      && checkS3 // Phải có SFP
+      && (tradeSetup.direction === 'LONG' ? (autoData.rsi < 30 && autoData.cmf > 0.1) : (autoData.rsi > 70 && autoData.cmf < -0.1))
+      && score >= 7.0;
 
+    // ========================================================================
+    // 🧠 CHIẾN THUẬT 2: MICRO-SQUEEZE (Bắt Nén Cạn Thanh Khoản)
+    // ========================================================================
+    // Bỏ qua lỗi H3_1 (Không có xu hướng) VÀ H6 (Volume đóng nến cạn kiệt).
+    // Điều kiện: Đang bị Nén (BBW < 25) + OI Spiking (Dồn nén phe kẹt) + Dòng tiền thuận chiều bùng nổ
+    const isMicroSqueeze = failedGates.length > 0
+      && failedGates.every(g => g.id === 'h3_1' || g.id === 'h6')
+      && (l2 === 'Compression' || autoData.bbwRank < 25)
+      && autoData.isOiSpiking
+      && (tradeSetup.direction === 'LONG' ? autoData.cmf > 0.1 : autoData.cmf < -0.1)
+      && score >= 6.5;
+
+    // ========================================================================
+    // CHIẾN THUẬT 3 (Cũ): ASYMMETRIC PAYOFF
+    // ========================================================================
     const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
     const isHighRROverride = isOnlyVolFailed && parseFloat(mathCore.theoreticalRR) >= 2.5 && score >= 7.0;
 
-    const isApproved = (hardPassed || isGoldenOverride || isSniperOverride || isHighRROverride) && (score >= 6.5); 
-    return { hardGates, softGates, softScore: score, isApproved, isGoldenOverride, isSniperOverride, isHighRROverride };
+    // QUYẾT ĐỊNH CUỐI CÙNG TỪ TỔNG ĐÀI
+    const isApproved = (hardPassed || isGoldenOverride || isCapitulationSniper || isMicroSqueeze || isHighRROverride) && (score >= 6.5); 
+    
+    return { 
+      hardGates, softGates, softScore: score, isApproved, 
+      isGoldenOverride, isCapitulationSniper, isMicroSqueeze, isHighRROverride 
+    };
   }, [autoData, mathCore, tradeSetup, apiMacro, vectorRegime, symbol]);
 
   // ============================================================================
