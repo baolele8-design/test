@@ -54,19 +54,19 @@ export default function OrderForm({
                 ...(tradeSetup.execution === 'LIMIT' ? { price: finalEntry, timeInForce: 'GTC' } : {})
             });
 
-            // 2. Lệnh Stoploss Cứng (Có thêm MARK_PRICE)
+            // 2. Lệnh Stoploss Cứng (Chuyển sang Reduce Only + Khối lượng tuyệt đối)
             if (parseFloat(finalSl) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'STOP_MARKET', 
-                    triggerPrice: finalSl, closePosition: "true", workingType: "MARK_PRICE" // Sửa stopPrice thành triggerPrice
+                    triggerPrice: finalSl, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE" 
                 });
             }
 
-            // 3. Lệnh Take Profit (Có thêm MARK_PRICE)
+            // 3. Lệnh Take Profit (Chuyển sang Reduce Only + Khối lượng tuyệt đối)
             if (parseFloat(finalTp) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET', 
-                    triggerPrice: finalTp, closePosition: "true", workingType: "MARK_PRICE" // Sửa stopPrice thành triggerPrice
+                    triggerPrice: finalTp, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE" 
                 });
             }
 
