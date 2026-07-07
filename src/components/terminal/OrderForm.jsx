@@ -15,14 +15,32 @@ export default function OrderForm({
     }
 
     setIsExecuting(true);
-    setExecStatus('Đang phóng cụm lệnh lên sàn...');
+    setExecStatus('Đang tiền trạm & Phóng cụm lệnh...');
 
     try {
         const step = stepSizes[symbol] || 0.001;
         const tick = tickSizes[symbol] || 0.001;
 
-        // BẢN VÁ: Xử lý hoàn hảo số thập phân bình thường & dạng Khoa học (1e-6)
+        // BẢN VÁ TỐI THƯỢNG: Xử lý Khoa học (1e-6) + Tiêu diệt Dấu Phẩy (,)
         const formatPrecision = (val, size) => {
+            // 1. Quét rác: Chuyển mọi input về dạng String để xử lý
+            let strVal = String(val);
+            
+            // Nếu phát hiện có dấu phẩy, quét sạch nó (phòng hờ copy/paste 1,234.56)
+            // Hoặc biến nó thành dấu chấm nếu nhập nhầm (1,5 -> 1.5)
+            if (strVal.includes(',')) {
+                // Nếu có cả phẩy và chấm (1,234.56), chỉ xóa phẩy
+                if (strVal.includes('.')) {
+                    strVal = strVal.replace(/,/g, '');
+                } else {
+                    // Nếu chỉ có phẩy (1234,56 kiểu Châu Âu/VN), biến phẩy thành chấm
+                    strVal = strVal.replace(/,/g, '.');
+                }
+            }
+
+            const cleanNum = parseFloat(strVal);
+
+            // 2. Phân rã TickSize / StepSize của Binance
             const sizeStr = parseFloat(size).toString();
             let precision = 0;
             if (sizeStr.includes('e-')) {
@@ -30,7 +48,9 @@ export default function OrderForm({
             } else if (sizeStr.includes('.')) {
                 precision = sizeStr.split('.')[1].length;
             }
-            return parseFloat(val).toFixed(precision);
+
+            // 3. toFixed() luôn khóa chuẩn format Mỹ: Dấu chấm thập phân, KHÔNG phân cách nghìn
+            return isNaN(cleanNum) ? "0" : cleanNum.toFixed(precision);
         };
 
         const rawQty = parseFloat(mathCore.positionSizeUSD) / tradeSetup.entry;
@@ -44,7 +64,6 @@ export default function OrderForm({
             const side = tradeSetup.direction === 'LONG' ? 'BUY' : 'SELL';
             const exitSide = tradeSetup.direction === 'LONG' ? 'SELL' : 'BUY';
 
-            // 1. Lệnh Entry (Giữ nguyên, hoàn toàn chuẩn xác)
             batch.push({
                 symbol: symbol,
                 side: side,
@@ -53,36 +72,42 @@ export default function OrderForm({
                 ...(tradeSetup.execution === 'LIMIT' ? { price: finalEntry, timeInForce: 'GTC' } : {})
             });
 
-            // 2. Lệnh Stoploss Cứng (BẢN VÁ: GỠ BỎ timeInForce)
             if (parseFloat(finalSl) > 0) {
-                batch.push({
-                    symbol: symbol, side: exitSide, type: 'STOP_MARKET',
-                    stopPrice: finalSl, closePosition: "true" 
-                });
+                batch.push({ symbol: symbol, side: exitSide, type: 'STOP_MARKET', stopPrice: finalSl, closePosition: "true" });
             }
 
-            // 3. Lệnh Take Profit (BẢN VÁ: GỠ BỎ timeInForce)
             if (parseFloat(finalTp) > 0) {
-                batch.push({
-                    symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET',
-                    stopPrice: finalTp, closePosition: "true" 
-                });
+                batch.push({ symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET', stopPrice: finalTp, closePosition: "true" });
             }
 
-            // ---------------------------------------------------------
-            // CẦU NỐI LƯỢNG TỬ (Gửi mảng batch đã dọn dẹp)
-            // ---------------------------------------------------------
+            // GÓI HÀNG HOÀN CHỈNH GỬI XUỐNG BRIDGE CỤC BỘ
+            const payload = {
+                symbol: symbol,
+                leverage: mathCore.suggestedLeverage,
+                marginType: 'ISOLATED',
+                batchOrders: batch
+            };
+
             const LOCAL_BRIDGE_URL = 'http://localhost:1337/api/execute-batch';
-            
             const res = await fetch(LOCAL_BRIDGE_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ batchOrders: batch })
+                body: JSON.stringify(payload)
             });
-            const data = await res.json();
             
-            if (!res.ok) throw new Error(data.details?.msg || data.error || 'Bridge Rejected');
-            setExecStatus('✅ ĐÃ KHỚP CỤM LỆNH LIÊN HOÀN (LOCAL EXECUTION)!');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.details?.msg || data.error || 'Bridge Cục bộ từ chối.');
+            
+            // BỘ QUÉT LỖI ẨN CỦA BINANCE
+            if (Array.isArray(data)) {
+                const errors = data.filter(r => r.code !== undefined);
+                if (errors.length > 0) {
+                    console.error("LỖI CHI TIẾT TỪ BINANCE:", errors);
+                    throw new Error(`Sàn từ chối ${errors.length} lệnh (Thường do Entry Limit chặn Trigger của TP/SL). Mở F12 xem mã lỗi.`);
+                }
+            }
+
+            setExecStatus('✅ ĐÃ KHỚP CỤM LỆNH LIÊN HOÀN VỚI MARGIN CHUẨN!');
             setTimeout(() => setExecStatus(''), 5000);
         } else {
             setExecStatus('❌ Cụm lệnh hiện chỉ hỗ trợ Futures.');
