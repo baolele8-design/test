@@ -23,7 +23,7 @@ export default function LiveMetrics({
         <div className="bg-black/40 p-2 rounded border border-slate-800">
           <label className="text-[8px] text-emerald-500 block mb-1 font-bold">EMA (20/50/200)</label>
           <div className="font-bold text-xs text-indigo-300">
-            ${autoData?.ema20?.value?.toFixed(0) || '0'} <span className="text-slate-600">/</span> <span className="text-purple-300">${autoData?.ema50?.value?.toFixed(0) || '0'}</span>
+            ${autoData?.ema20?.value?.toFixed(4) || '0.0000'} <span className="text-slate-600 mx-0.5">/</span> <span className="text-purple-300">${autoData?.ema50?.value?.toFixed(4) || '0.0000'}</span> <span className="text-slate-600 mx-0.5">/</span> <span className="text-amber-500">${autoData?.ema200?.value?.toFixed(4) || '0.0000'}</span>
           </div>
         </div>
         <div className="bg-black/40 p-2 rounded border border-slate-800">
