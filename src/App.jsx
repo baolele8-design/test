@@ -42,7 +42,9 @@ export default function AntiFragileTerminal() {
   // ============================================================================
   // TẢI MIN NOTIONAL TỪ BINANCE EXCHANGE INFO NGAY KHI APP KHỞI ĐỘNG
   // ============================================================================
-  const [minNotionalMap, setMinNotionalMap] = useState({});
+  const [minNotionalMap, setMinNotionalMap] = useState({
+    BTCUSDT: 50, ETHUSDT: 20, SOLUSDT: 5, BNBUSDT: 5, LINKUSDT: 20, XRPUSDT: 5, ADAUSDT: 5, AVAXUSDT: 5 // Fallback tức thì trước khi API trả về
+  });
   useEffect(() => {
     const fetchExchangeInfo = async () => {
       try {
@@ -50,12 +52,10 @@ export default function AntiFragileTerminal() {
         if (!res.ok) return;
         const data = await res.json();
         if (data && data.symbols) {
-           const newMap = {};
+           const newMap = { ...minNotionalMap }; 
            data.symbols.forEach(symObj => {
                const notionalFilter = symObj.filters.find(f => f.filterType === 'MIN_NOTIONAL');
-               if (notionalFilter) {
-                   newMap[symObj.symbol] = parseFloat(notionalFilter.notional);
-               }
+               if (notionalFilter) newMap[symObj.symbol] = parseFloat(notionalFilter.notional);
            });
            setMinNotionalMap(newMap);
         }
