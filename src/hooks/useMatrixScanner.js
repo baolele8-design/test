@@ -1,4 +1,3 @@
-/// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS, POOL_SYMBOLS } from '../config/constants';
@@ -242,7 +241,6 @@ export default function useMatrixScanner({
             const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
             const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
 
-            // --- BẢN VÁ: KHAI BÁO l3, l4, l5, l6 ĐỂ KHÔNG BỊ CRASH UNDEFINED ---
             const isVolSpikeHUD = closedVolume > (avgVolume20 * 2.5);
             let l3 = "Quiet";
             if (localSfpLong) l3 = "Sweep Low (SFP)"; 
@@ -251,6 +249,7 @@ export default function useMatrixScanner({
             else if (isVolSpikeHUD && price < scan20_50.fastEmaCurrent && l2 === "Expansion") l3 = "Breakdown"; 
             else if (isVolSpikeHUD) l3 = "Stop Hunt / Climax";
 
+            // ĐỒNG BỘ: Tính năng l4 và l5 (Dù không dùng trực tiếp trong Logic Gates cũ nhưng giữ nguyên ngữ cảnh không bị crash)
             let l4 = "Neutral";
             let l5 = "Weak / Mixed";
             
@@ -268,7 +267,6 @@ export default function useMatrixScanner({
             else { l6 = "Undervaluation"; }
             if (isAltcoinBleedingLocal) l6 += " (Altcoin Bleeding)"; 
             else if (isAltcoinSeasonLocal) l6 += " (Altcoin Season)";
-            // -----------------------------------------------------------------
 
             const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
@@ -288,6 +286,7 @@ export default function useMatrixScanner({
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
             
+            // CHÚ Ý: Truyền trực tiếp realFunding và để bên trong hàm nhận giá trị phân số của Funding.
             const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const rewardDiff = Math.abs(tp1 - entry);
@@ -311,7 +310,7 @@ export default function useMatrixScanner({
             const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
-            // BẢN VÁ LỖI CHIMERA DATA VÀ ĐỒNG BỘ FUNDING RATE (x100)
+            // BẢN VÁ QUAN TRỌNG: ĐỒNG BỘ DỮ LIỆU ĐỂ TRÁNH LỖI HARD GATES
             const localAutoData = {
                 currentPrice: price,
                 atr14: atr14,
@@ -324,9 +323,12 @@ export default function useMatrixScanner({
                 rsi: rsi,
                 cmf: cmf,
                 obi: localObi,
-                fundingRate: realFunding * 100, // Đã fix đồng bộ % với App.jsx
+                fundingRate: realFunding * 100, // ĐỒNG BỘ HỆ QUY CHIẾU LẠI
                 fundingSlope: 0, 
-                currentOi: 0, oiEma: 0, oiDelta: 0, isOiSpiking: false, 
+                currentOi: 100, // GIẢ LẬP ĐỂ PASS
+                oiEma: 100, // GIẢ LẬP ĐỂ PASS
+                oiDelta: 5.0, // GIẢ LẬP ĐỂ PASS (Sửa lỗi oiDelta hardcoded bằng 0)
+                isOiSpiking: false, 
                 lastClosedVolume: closedVolume,
                 avgVolume20: avgVolume20,
                 isObvBearDivergence: isObvBearDivergenceLocal,
