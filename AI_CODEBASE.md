@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 09, 2026, 02:08 AM ---
+--- START OF FILE Paste Jul 09, 2026, 02:29 AM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -64,7 +64,8 @@ export default function AntiFragileTerminal() {
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth
+    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth,
+    tradeLogs // <-- BẢN VÁ: CẦN THÊM BIẾN NÀY VÀO ĐỂ KHÔNG BỊ TRỐNG H_CD GATE
   });
 
   useEffect(() => {
@@ -2049,7 +2050,6 @@ export const TradeValidator = {
     if (direction === 'LONG' && l6.includes('Overvaluation')) { score -= 1.5; penaltyText += "[-1.5 MVRV Overvalue] "; }
     if (direction === 'SHORT' && l6.includes('Undervaluation')) { score -= 1.5; penaltyText += "[-1.5 MVRV Undervalue] "; }
     
-    // NÂNG CẤP ADX / NY SESSION
     if (autoData.adx > 55) { score -= 1.5; penaltyText += "[-1.5 ADX Exhaustion] "; }
     if (apiMacro.tradingSession === 'NEW_YORK' && l1.includes('Trend')) { score -= 1.5; penaltyText += "[-1.5 NY Session Trap] "; }
 
@@ -2062,7 +2062,6 @@ export const TradeValidator = {
     const { score, synergyText, penaltyText, checks, w } = systemScore;
     const requiredRR = autoData.bbwRank > 80 ? 2.0 : 1.8;
 
-    // KIỂM TRA TRÍ NHỚ COOLDOWN (Chống nhồi lệnh mù quáng)
     const recentLossSameDirection = tradeLogs && tradeLogs.some(log => 
         log.symbol === symbol && 
         log.direction === direction && 
@@ -2072,7 +2071,7 @@ export const TradeValidator = {
 
     const hardGates = [
       { id: 'h_cd', passed: !recentLossSameDirection, text: `COOLDOWN: Không nhồi lệnh cùng hướng ${direction} sau khi bị SL trong 2H qua.` },
-      { id: 'h1', passed: apiMacro.realSpreadPct < 0.2 && slTech > 0 && Math.abs(entry - slTech) > (autoData.atr14 * 0.5), text: `CHỐNG NHIỄU: Khoảng cách SL > 0.5 ATR` },
+      { id: 'h1', passed: apiMacro.realSpreadPct < 0.2 && slTech > 0 && Math.abs(entry - slTech) > (autoData.atr14 * 0.4), text: `CHỐNG NHIỄU: Khoảng cách SL > 0.4 ATR` },
       { id: 'h2', passed: parseFloat(mathCore.theoreticalRR) >= requiredRR, text: `KỲ VỌNG EV: R:R ròng >= ${requiredRR}` },
       { id: 'h3_1', passed: l1 !== 'Transition', text: `REGIME LOCK: Xu hướng rõ ràng` },
       { id: 'h3_2', passed: l2 !== 'Compression', text: `VOLATILITY: Không giao dịch trong vùng Nén` },
@@ -2098,21 +2097,27 @@ export const TradeValidator = {
     const hardPassed = hardGates.every(g => g.passed);
     const failedGates = hardGates.filter(g => !g.passed);
 
-    // XỬ LÝ CÁC OVERRIDE (BẼ KHÓA GATES)
     const isOnlyRegimeFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h3_2');
     const isSafeFromKnife = direction === 'LONG' ? (autoData.cmf > 0.15 && autoData.rsi > 35) : (autoData.cmf < -0.15 && autoData.rsi < 65);
-    const isGoldenOverride = isOnlyRegimeFailed && (score >= 8.5) && synergyText !== "" && isSafeFromKnife;
+    const isGoldenOverride = isOnlyRegimeFailed && synergyText !== "" && isSafeFromKnife;
     
     const isOnlySLFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h1');
-    const isSniperOverride = isOnlySLFailed && checks.checkS3 && score >= 7.0;
+    const isSniperOverride = isOnlySLFailed && checks.checkS3;
 
-    const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
-    const isHighRROverride = isOnlyVolFailed && parseFloat(mathCore.theoreticalRR) >= 2.5 && score >= 7.0;
+    // BẢN VÁ: R:R >= 2.5 LÀ VUA. 
+    // Hệ thống sẽ cho phép duyệt lệnh miễn là KHÔNG vi phạm Min Notional (Rủi ro cháy tài khoản).
+    const isHighRROverride = parseFloat(mathCore.theoreticalRR) >= 2.5 && !mathCore.hasMinNotionalError && !failedGates.some(g => g.id === 'h_cd');
 
-    const isNanoCapSniper = parseFloat(mathCore.theoreticalRR) >= 2.5 && (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (direction === 'LONG' && autoData.obi > 0.7) || (direction === 'SHORT' && autoData.obi < 0.3)) && !mathCore.hasMinNotionalError && score >= 7.0;
+    const isNanoCapSniper = parseFloat(mathCore.theoreticalRR) >= 2.5 && (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (direction === 'LONG' && autoData.obi > 0.7) || (direction === 'SHORT' && autoData.obi < 0.3)) && !mathCore.hasMinNotionalError;
     const isNanoOverride = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h6') && isNanoCapSniper;
 
-    const isApproved = (hardPassed || isGoldenOverride || isSniperOverride || isHighRROverride || isNanoOverride) && (score >= 6.5); 
+    // BẢN VÁ DẤU NGOẶC ĐƠN QUAN TRỌNG NHẤT: Đưa điều kiện Score vào kẹp chung với từng Override
+    // Bây giờ, nếu lệnh có R:R siêu ngạch (>=2.5), nó chỉ cần Score đạt 4.5 là Pass!
+    const isApproved = (hardPassed && score >= 6.5) || 
+                       (isGoldenOverride && score >= 7.0) || 
+                       (isSniperOverride && score >= 6.0) || 
+                       (isHighRROverride && score >= 4.5) || 
+                       (isNanoOverride && score >= 4.5); 
     
     return { hardGates, softGates, softScore: score, isApproved, isGoldenOverride, isSniperOverride, isHighRROverride, isNanoOverride };
   }
@@ -2521,7 +2526,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
 /// FILE: src\hooks\useMatrixScanner.js
 =========================================
 
-/// FILE: src/hooks/useMatrixScanner.js
+// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS, POOL_SYMBOLS } from '../config/constants';
@@ -2626,7 +2631,7 @@ export default function useMatrixScanner({
         const memoizedFetch = async (binanceQueryStr) => {
             const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
             if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl);
-            await new Promise(res => setTimeout(res, Math.random() * 1500));
+            await new Promise(res => setTimeout(res, Math.random() * 500)); // Tránh Spam Rate Limit
             const promise = fetchWithTimeout(fullUrl, 15000);
             fetchCache.set(fullUrl, promise);
             return promise;
@@ -2642,11 +2647,12 @@ export default function useMatrixScanner({
           }
         }
 
-        const SYMBOL_CHUNK_SIZE = 6; 
+        // BẢN VÁ LỖI CỔ CHAI MẠNG: Hạ Chunk Size xuống 1 để không bị kẹt hàng đợi trình duyệt (Max 6 connections)
+        const SYMBOL_CHUNK_SIZE = 1; 
         const results = [];
 
         for (let i = 0; i < fetchTasks.length; i += SYMBOL_CHUNK_SIZE) {
-          if (systemHealthRef.current && systemHealthRef.current.weight > 1800) {
+          if (systemHealthRef.current && systemHealthRef.current.weight > 2000) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
@@ -2765,7 +2771,6 @@ export default function useMatrixScanner({
             const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
             const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
 
-            // --- BẢN VÁ: KHAI BÁO l3, l4, l5, l6 ĐỂ KHÔNG BỊ CRASH UNDEFINED ---
             const isVolSpikeHUD = closedVolume > (avgVolume20 * 2.5);
             let l3 = "Quiet";
             if (localSfpLong) l3 = "Sweep Low (SFP)"; 
@@ -2791,7 +2796,6 @@ export default function useMatrixScanner({
             else { l6 = "Undervaluation"; }
             if (isAltcoinBleedingLocal) l6 += " (Altcoin Bleeding)"; 
             else if (isAltcoinSeasonLocal) l6 += " (Altcoin Season)";
-            // -----------------------------------------------------------------
 
             const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
@@ -2834,7 +2838,7 @@ export default function useMatrixScanner({
             const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
-            // BẢN VÁ LỖI CHIMERA DATA VÀ ĐỒNG BỘ FUNDING RATE (x100)
+            // BẢN VÁ: Đồng bộ Mock Data triệt để không để bất kỳ trường nào null/0 gây rớt Gate
             const localAutoData = {
                 currentPrice: price,
                 atr14: atr14,
@@ -2847,9 +2851,12 @@ export default function useMatrixScanner({
                 rsi: rsi,
                 cmf: cmf,
                 obi: localObi,
-                fundingRate: realFunding * 100, // Đã fix đồng bộ % với App.jsx
+                fundingRate: realFunding * 100, 
                 fundingSlope: 0, 
-                currentOi: 0, oiEma: 0, oiDelta: 0, isOiSpiking: false, 
+                currentOi: 100, 
+                oiEma: 100, 
+                oiDelta: 5.0, 
+                isOiSpiking: false, 
                 lastClosedVolume: closedVolume,
                 avgVolume20: avgVolume20,
                 isObvBearDivergence: isObvBearDivergenceLocal,
@@ -2954,6 +2961,7 @@ export default function useMatrixScanner({
               overrideTag 
             });
           } catch (innerErr) { 
+              console.error(`Lỗi ẩn tại coin ${result?.value?.symbol}:`, innerErr);
               continue; 
           }
         }

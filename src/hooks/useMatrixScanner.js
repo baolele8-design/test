@@ -360,7 +360,7 @@ export default function useMatrixScanner({
                 isAltcoinSeason: isAltcoinSeasonLocal 
             };
 
-            const currentMinNotional = currentMinNotionalsRef.current?.[targetSymbol] || 5.0;
+            const currentMinNotional = dynamicMinNotionalsRef.current?.[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 100.0; 
             
             const draftSystemScore = TradeValidator.evaluateScore(
