@@ -55,7 +55,7 @@ export default function AntiFragileTerminal() {
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals, setSystemHealth
+    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // VÁ LỖI SCOPE: ĐÃ TRUYỀN systemHealth
   });
 
   useEffect(() => {
@@ -215,8 +215,8 @@ export default function AntiFragileTerminal() {
     if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
 
     const activeMakerFee = tradeFees.maker; const activeTakerFee = tradeFees.taker;
-    const costDragLoss = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'MARKET', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime);
-    const costDragWin = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'LIMIT', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime);
+    const costDragLoss = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'MARKET', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime, autoData.obi);
+    const costDragWin = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'LIMIT', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime, autoData.obi);
     const rewardDiff1 = Math.abs(tradeSetup.tp1 - tradeSetup.entry);
     let theoreticalRR = riskDiffTech > 0 ? ((rewardDiff1 - costDragWin) / (riskDiffTech + costDragLoss)) : 0;
     if (!isFinite(theoreticalRR) || isNaN(theoreticalRR) || theoreticalRR < 0) theoreticalRR = 0;
@@ -270,7 +270,7 @@ export default function AntiFragileTerminal() {
       suggestedLeverage, theoreticalRR: theoreticalRR.toFixed(2), trueEVValue: trueEVCalc.toFixed(3), kellyPct: (kellyDec * 100).toFixed(2),
       liqEstimate, liqSafetyMargin, leverageExceedsExchangeCap, dynamicSlDistance: sizeSlDistance, hasMinNotionalError, isSizeForcedByExchange
     };
-  }, [autoData, apiMacro, liveCapital, tradeSetup, symbol, tradeStats, leverageBrackets, vectorRegime, tradeFees, dynamicMinNotionals, systemScore.score]);
+  }, [autoData, apiMacro, liveCapital, tradeSetup, symbol, tradeStats, leverageBrackets, vectorRegime, tradeFees, dynamicMinNotionals, systemScore.score, intervalTime]);
 
   const logicGates = useMemo(() => {
     if (!autoData || !mathCore || !vectorRegime) return { hardGates: [], softGates: [], softScore: 0, isApproved: false };
@@ -494,13 +494,13 @@ BẤT DI BẤT DỊCH:
     finally { setIsSyncing(false); }
   };
 
+  // VÁ LỖI LOGIC: Đã đẩy TP/SL Bất đối xứng vào hàm Auto Sync
   const handleMasterAuto = () => { 
     if (!autoData || !vectorRegime) return;
     let dir = vectorRegime.details.l1 === 'Trend Up' ? 'LONG' : 'SHORT'; 
     let execType = 'LIMIT'; 
     let suggestedEntry = autoData.currentPrice;
 
-    // 1. Xác định Hướng (Direction) và Giá vào (Entry) dựa trên Regime
     if (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme') {
        if (autoData.rsi < 45) dir = 'LONG'; 
        else if (autoData.rsi > 55) dir = 'SHORT'; 
@@ -514,12 +514,8 @@ BẤT DI BẤT DỊCH:
        suggestedEntry = dir === 'LONG' ? autoData.currentPrice - (0.5 * autoData.atr14) : autoData.currentPrice + (0.5 * autoData.atr14);
     }
 
-    // =====================================================================
-    // 2. TÍNH TOÁN TP/SL BẤT ĐỐI XỨNG (SĂN KÈO X5, X10 THEO QUANT CORE)
-    // =====================================================================
     const isSfp = dir === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     
-    // Gọi hàm từ QuantMath để lấy hệ số nhân TP và SL tự thích nghi
     const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
         autoData.bbwRank, 
         autoData.bbwSlope, 
@@ -532,12 +528,10 @@ BẤT DI BẤT DỊCH:
     const sl = dir === 'LONG' ? suggestedEntry - (slMult * autoData.atr14) : suggestedEntry + (slMult * autoData.atr14);
     const tp1 = dir === 'LONG' ? suggestedEntry + (tpMult * autoData.atr14) : suggestedEntry - (tpMult * autoData.atr14);
 
-    // 3. Xử lý làm tròn số (Tick Size) chuẩn xác cho sàn Binance
     const tick = tickSizes[symbol] || 0.0001;
     const tickStr = parseFloat(tick).toString();
     const precision = tickStr.includes('e-') ? parseInt(tickStr.split('e-')[1]) : (tickStr.includes('.') ? tickStr.split('.')[1].length : 4);
 
-    // 4. Bơm dữ liệu vào Form
     setTradeSetup(prev => ({ 
       ...prev, 
       direction: dir, 
@@ -547,7 +541,6 @@ BẤT DI BẤT DỊCH:
       tp1: Number(tp1.toFixed(precision)) 
     }));
     
-    // 5. Cảnh báo/Thông báo hiển thị lên HUD
     if (!(autoData.rsi >= 45 && autoData.rsi <= 55 && (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme'))) {
         showToast(`✅ AUTO SYNC: Khởi tạo Template Động (SL ${slMult} ATR | TP ${tpMult} ATR)`);
     }

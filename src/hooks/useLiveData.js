@@ -48,7 +48,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
       const isWknd = (day === 0 || day === 6);
       if (isWknd) mult = mult * 0.5;
       
-
       setApiMacro(prev => ({ 
         ...prev, isWeekend: isWknd, tradingSession: currentSession, sessionMultiplier: mult
       }));
@@ -118,7 +117,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
 
         const ts = Date.now(); 
         
-        // TÍCH HỢP ĐO LƯỜNG LATENCY VÀ WEIGHT VÀO SAFEFETCH
         const safeFetch = async (url) => {
           try {
             const startPing = Date.now();
@@ -258,6 +256,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
         const isObvBearDivergence = (currentPrice > htfSma200) && (obvArray[obvArray.length-1] < obvEma20);
         const isObvBullDivergence = (currentPrice < htfSma200) && (obvArray[obvArray.length-1] > obvEma20);
 
+        // VÁ LỖI ĐỒNG BỘ: Chuyền parameter chính xác cho detectSFP_Advanced
         setAutoData({
             currentPrice, atr14, atrPercent: currentPrice > 0 ? (atr14 / currentPrice) * 100 : 0, atrRank,
             adx: adxValue, htfSma200, rsi: rsiValue, bbwRank, bbw: bollinger20.bbw, cmf: cmfValue,
@@ -271,7 +270,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
             obi: fetchedObi, bbwSlope: bbwSlopeValue,
             currentOi: currentOiValue, oiEma: oiEma14, oiDelta: oiDeltaPercent, isOiSpiking: currentOiValue > oiEma14,
             currentVolume: volumesLTF[volumesLTF.length - 1], lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
-            avgVolume20: QuantMath.sma(volumesLTF.slice(0, -1), 20), 
+            avgVolume20: avgVolume20, 
             isObvBearDivergence, isObvBullDivergence,
             isBullishSFP: QuantMath.detectSFP_Advanced(highsLTF, lowsLTF, closesLTF, volumesLTF, avgVolume20, 'LONG'),
             isBearishSFP: QuantMath.detectSFP_Advanced(highsLTF, lowsLTF, closesLTF, volumesLTF, avgVolume20, 'SHORT'),

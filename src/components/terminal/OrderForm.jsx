@@ -1,3 +1,4 @@
+// FILE: src/components/terminal/OrderForm.jsx
 import React, { useState } from 'react';
 import { Zap, TrendingUp, TrendingDown, BarChart3, Lock, Rocket, Loader2 } from 'lucide-react';
 
@@ -54,19 +55,19 @@ export default function OrderForm({
                 ...(tradeSetup.execution === 'LIMIT' ? { price: finalEntry, timeInForce: 'GTC' } : {})
             });
 
-            // 2. Lệnh Stoploss Cứng (Chuyển sang Reduce Only + Khối lượng tuyệt đối)
+            // 2. Lệnh Stoploss Cứng (ĐÃ THÊM priceProtect)
             if (parseFloat(finalSl) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'STOP_MARKET', 
-                    triggerPrice: finalSl, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE" 
+                    triggerPrice: finalSl, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE", priceProtect: "true" 
                 });
             }
 
-            // 3. Lệnh Take Profit (Chuyển sang Reduce Only + Khối lượng tuyệt đối)
+            // 3. Lệnh Take Profit (ĐÃ THÊM priceProtect)
             if (parseFloat(finalTp) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET', 
-                    triggerPrice: finalTp, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE" 
+                    triggerPrice: finalTp, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE", priceProtect: "true" 
                 });
             }
 
@@ -77,9 +78,6 @@ export default function OrderForm({
                 batchOrders: batch
             };
 
-            // ---------------------------------------------------------
-            // CẦU NỐI LƯỢNG TỬ (Gửi mảng batch đã dọn dẹp)
-            // ---------------------------------------------------------
             const LOCAL_BRIDGE_URL = 'http://192.168.1.60:1337/api/execute-batch';
             
             const res = await fetch(LOCAL_BRIDGE_URL, {
@@ -91,7 +89,6 @@ export default function OrderForm({
             const data = await res.json();
             if (!res.ok) throw new Error(data.details?.msg || data.error || 'Bridge Cục bộ từ chối.');
 
-            // BỘ QUÉT LỖI ẨN CỦA BINANCE (Phát hiện lỗi TP/SL bị rớt)
             if (Array.isArray(data)) {
                 const errors = data.filter(r => r.error === true || r.code !== undefined);
                 if (errors.length > 0) {
@@ -118,7 +115,6 @@ export default function OrderForm({
           <Zap className="w-3 h-3" /> AUTO SYNC TEMPLATE
         </button>
 
-        {/* NÚT BẮN CỤM LỆNH LIÊN HOÀN */}
         <button 
           onClick={handleExecuteBatch} 
           disabled={isExecuting || !autoData} 

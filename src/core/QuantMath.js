@@ -1,13 +1,11 @@
-// File: src/core/QuantMath.js
+// FILE: src/core/QuantMath.js
 
 const QuantMath = {
-  // Tính toán đường trung bình động đơn giản (SMA)
   sma: (data, period) => {
     if (!data || data.length < period || period <= 0) return 0;
     return data.slice(-period).reduce((a, b) => a + b, 0) / period;
   },
   
-  // Tính toán đường trung bình động lũy thừa (EMA)
   ema: (data, period) => {
     if (!data || data.length < period || period <= 0) return 0;
     const k = 2 / (period + 1);
@@ -18,10 +16,8 @@ const QuantMath = {
     return emaVal;
   },
   
-  // Tính toán biên độ dao động thực tế (True Range)
   trueRange: (h, l, pc) => Math.max(h - l || 0, Math.abs(h - pc) || 0, Math.abs(l - pc) || 0),
   
-  // Tính toán Average True Range (ATR) để đo lường mức độ biến động
   atr: (highs, lows, closes, period) => {
     if (!closes || closes.length < period + 1 || highs.length !== closes.length) return 0;
     let trs = [];
@@ -35,7 +31,6 @@ const QuantMath = {
     return currentAtr || 0;
   },
   
-  // Tính toán chỉ số định hướng trung bình (ADX) để đo sức mạnh xu hướng
   adx: (highs, lows, closes, period = 14) => {
     if (!closes || closes.length < period * 2) return 0;
     let trs = [], plusDMs = [], minusDMs = [];
@@ -68,7 +63,6 @@ const QuantMath = {
     return adx || 0;
   },
   
-  // Tính toán chỉ số sức mạnh tương đối (RSI)
   rsi: (closes, period = 14) => {
     if (!closes || closes.length < period + 1) return 50;
     let gains = 0, losses = 0;
@@ -89,7 +83,6 @@ const QuantMath = {
     return 100 - (100 / (1 + rs));
   },
   
-  // Tính toán dải Bollinger Bands và độ rộng dải (BBW)
   bollinger: (closes, period = 20, stdDev = 2) => {
     if (!closes || closes.length < period) return { bbw: 0, upper: 0, lower: 0, sma: 0 };
     const slice = closes.slice(-period);
@@ -102,14 +95,12 @@ const QuantMath = {
     return { bbw, upper, lower, sma };
   },
 
-  // Tính toán vị thế bách phân vị (Percentile Rank) của một giá trị so với dữ liệu quá khứ
   percentileRank: (currentValue, historicalArray) => {
     if (!historicalArray || historicalArray.length === 0) return 50;
     const belowCount = historicalArray.filter(val => val < currentValue).length;
     return (belowCount / historicalArray.length) * 100;
   },
   
-  // Tính toán On-Balance Volume (OBV) dựa trên giá và khối lượng
   obv: (closes, volumes) => { 
     if (!closes || closes.length < 2) return 0;
     let obv = 0;
@@ -120,7 +111,6 @@ const QuantMath = {
     return obv;
   },
 
-  // Tính toán dòng tiền Chaikin (Chaikin Money Flow - CMF)
   cmf: (highs, lows, closes, volumes, period = 20) => { 
     if (!closes || closes.length < period) return 0;
     let mfValues = [];
@@ -133,13 +123,12 @@ const QuantMath = {
     return recentMfSum / (recentVolSum || 1);
   },
   
-  // Ước tính chi phí trượt giá, phí giao dịch và Funding Rate (Cost Drag)
+  // VÁ LỖI: Thêm OBI phạt trượt giá
   costDrag: (entryPrice, tradeType, direction, entryExecution, exitExecution, fundingRate, spreadPercent, holdingCycles = 1, makerFee = 0.0002, takerFee = 0.0004, interval = '1h', obi = 0.5) => { 
-    // BỔ SUNG LOGIC: Slippage bị phạt nặng nếu OBI bất lợi (Orderbook mỏng)
     let slippagePenalty = 0;
     if (entryExecution === 'MARKET') {
-        if (direction === 'LONG' && obi < 0.4) slippagePenalty = 0.0015; // Mua đuổi khi tường Sell dày
-        if (direction === 'SHORT' && obi > 0.6) slippagePenalty = 0.0015; // Bán đuổi khi tường Buy dày
+        if (direction === 'LONG' && obi < 0.4) slippagePenalty = 0.0015; 
+        if (direction === 'SHORT' && obi > 0.6) slippagePenalty = 0.0015; 
     }
     const entrySlippage = entryExecution === 'MARKET' ? (0.001 + slippagePenalty) : 0; 
     const entryFee = entryExecution === 'MARKET' ? takerFee : makerFee;
@@ -149,7 +138,7 @@ const QuantMath = {
 
     const spreadCost = (spreadPercent / 100) / 2;
     
-    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; // ĐÃ XÓA 1W
+    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; // Xóa 1w
     const hoursPerCandle = intervalToHours[interval] || 1;
     const totalHoldingHours = holdingCycles * hoursPerCandle;
     const realFundingCycles = totalHoldingHours / 8; 
@@ -169,12 +158,10 @@ const QuantMath = {
     return entryCostPerCoin + exitCostPerCoin + (fundingImpact * entryPrice); 
   },
 
-  // Tính toán giá trị kỳ vọng thực (True Expected Value)
   trueEV: (winRate, reward, lossRate, risk) => {
      return (winRate * reward) - (lossRate * risk);
   },
   
-  // Áp dụng tiêu chuẩn Kelly để tính toán tỷ lệ đi vốn an toàn
   kellyCriterion: (winRate, historicalAvgRR, nTrades = 0) => {
     if (nTrades < 5) return 0.02; 
     if(winRate === 0 || historicalAvgRR === 0) return 0.01; 
@@ -188,7 +175,6 @@ const QuantMath = {
     return halfKelly;
   },
 
-  // Quét và tính toán độ dốc, khoảng cách giữa 2 đường EMA
   scanEmaRange: (closesArray, fastPeriod, slowPeriod, lookback = 20, atrValue = 0) => {
       if (!closesArray || closesArray.length < Math.max(fastPeriod, slowPeriod) + lookback) {
          return { fastEmaCurrent: 0, slowEmaCurrent: 0, fastSlope: 0, slowSlope: 0, isCrossBull: false, isCrossBear: false, spreadPercent: 0, normFastSlope: 0, normSlowSlope: 0 };
@@ -214,7 +200,7 @@ const QuantMath = {
       return { fastEmaCurrent, slowEmaCurrent, fastSlope, slowSlope, isCrossBull, isCrossBear, spreadPercent, normFastSlope, normSlowSlope };
   },
   
-  // Thuật toán phát hiện mô hình quét thanh khoản (Swing Failure Pattern - SFP)
+  // VÁ LỖI: Buộc có Khối lượng khi bắt SFP
   detectSFP_Advanced: (highs, lows, closes, volumes, avgVolume, direction) => {
     if (!closes || closes.length < 10 || !volumes) return false;
     const triggerIndex = closes.length - 2; 
@@ -224,8 +210,6 @@ const QuantMath = {
     const triggerVol = volumes[triggerIndex];
 
     if (triggerVol < avgVolume * 1.2) return false;
-    let lastPivotHigh = -1;
-    let lastPivotLow = Infinity;
 
     let lastPivotHigh = -1;
     let lastPivotLow = Infinity;
@@ -252,30 +236,26 @@ const QuantMath = {
         return (lastPivotLow !== Infinity && triggerLow < lastPivotLow && triggerClose > lastPivotLow);
     }
   },
-  dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
-      let tpMult = 2.0; // Default R:R = 1:2
-      let slMult = 1.5; // Default SL = 1.5 ATR
 
-      // CHIẾN THUẬT 1: NANO-CAP SQUEEZE (X5 - X10)
-      // Điều kiện: Đang nén cực đại (BBW < 10), và bắt đầu ngóc đầu (bbwSlope > 10)
+  // THÊM MỚI: Bắt Target x5, x10
+  dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
+      let tpMult = 2.0; 
+      let slMult = 1.5; 
+
       if (bbwRank <= 15 && bbwSlope > 10) {
-          tpMult = 7.0; // Kéo Target xa lên 7 ATR để bắt trọn cây nến Breakout
-          slMult = 1.0; // Bóp SL lại vì Breakout xịn không được quay lại nền giá
+          tpMult = 7.0; 
+          slMult = 1.0; 
       }
       
-      // CHIẾN THUẬT 2: FLASH-CRASH SNIPER (X5)
-      // Điều kiện: Vừa quét SFP xong, và có tường Orderbook khổng lồ bảo vệ
       if (isSfp) {
           if ((direction === 'LONG' && obi > 0.75) || (direction === 'SHORT' && obi < 0.25)) {
-              tpMult = 4.0; // Kéo Target bắt cú Reversal
-              slMult = 0.6; // Đặt SL ngay sau bức tường Limit + Râu SFP
+              tpMult = 4.0; 
+              slMult = 0.6; 
           }
       }
-
       return { tpMult, slMult };
   },
 
-  // Ước tính giá thanh lý và đòn bẩy tối đa dựa trên Bracket của Binance
   estimateLiquidation: (notionalUSD, leverage, entry, direction, brackets) => {
     if (!brackets || brackets.length === 0 || !leverage) return null;
     const tier = brackets.find(b => notionalUSD >= b.notionalFloor && notionalUSD < b.notionalCap) 

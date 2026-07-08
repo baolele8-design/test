@@ -5,7 +5,7 @@ import { POOL_INTERVALS } from '../config/constants';
 
 export default function useMatrixScanner({ 
   liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, 
-  dynamicPool, dynamicMinNotionals, setSystemHealth 
+  dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // ĐÃ VÁ LỖI SCOPE
 }) {
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
@@ -32,7 +32,6 @@ export default function useMatrixScanner({
   useEffect(() => {
     let isMounted = true;
 
-    // TÍCH HỢP THEO DÕI RATE LIMIT TRONG SCANNER
     const fetchWithTimeout = async (url, ms = 8000) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
@@ -98,7 +97,7 @@ export default function useMatrixScanner({
 
         const fetchTasks = [];
         for (const targetSymbol of currentPool) {
-          for (const targetInterval of POOL_INTERVALS) { // Đã xóa 1W từ constants.js
+          for (const targetInterval of POOL_INTERVALS) { // Đã chuẩn hóa không có 1W
             fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
           }
         }
@@ -107,18 +106,8 @@ export default function useMatrixScanner({
         const results = [];
 
         for (let i = 0; i < fetchTasks.length; i += chunkSize) {
-          // ========================================================
-          // CƠ CHẾ SMART RATE LIMIT PACING (BẢO VỆ API BINANCE)
-          // ========================================================
-          setSystemHealth(prev => {
-              if (prev.weight > 1500) {
-                  showToast("⚠️ API Weight cao. Scanner tự động giảm tốc (Pacing)...");
-              }
-              return prev;
-          });
-          
-          // Tự động tạm dừng (Sleep) 3 giây nếu Weight chạm ngưỡng nguy hiểm
-          if (systemHealth?.weight > 1200) {
+          // VÁ LỖI: Rate Limit Pacing với Scope chuẩn
+          if (systemHealth && systemHealth.weight > 1200) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
@@ -129,7 +118,7 @@ export default function useMatrixScanner({
             if (task.interval === '15m') mtfInterval = '1h';
             else if (task.interval === '1h') mtfInterval = '4h';
             else if (task.interval === '4h') mtfInterval = '1d';
-            else if (task.interval === '1d') mtfInterval = '1w';
+            else if (task.interval === '1d') mtfInterval = '1w'; // Chỉ để MTF lấy data
 
             let macroInterval = task.interval;
             if (task.interval === '1w') macroInterval = '1d';
@@ -175,6 +164,13 @@ export default function useMatrixScanner({
             const quoteVolumes = klines.map(d => parseFloat(d[7])); 
             const price = closes[closes.length - 1];
 
+            // VÁ LỖI: Bơm Vol vào SFP
+            const avgVolume20 = QuantMath.sma(quoteVolumes.slice(0, -1), 20);
+            const closedVolume = quoteVolumes[quoteVolumes.length - 2];
+
+            const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
+            const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
+
             const atr14 = QuantMath.atr(highs, lows, closes, 14);
             const rsi = QuantMath.rsi(closes, 14);
             const cmf = QuantMath.cmf(highs, lows, closes, quoteVolumes, 20); 
@@ -212,9 +208,6 @@ export default function useMatrixScanner({
             else if (volScoreLocal > 65) l2 = "Expansion";
             else l2 = "Normal";
 
-            const avgVolume20 = QuantMath.sma(quoteVolumes.slice(0, -1), 20);
-            const closedVolume = quoteVolumes[quoteVolumes.length - 2];
-
             let dir = l1.includes('Trend Up') ? 'LONG' : 'SHORT'; 
             if (l1 === 'Range' || l2 === 'Extreme') {
                 if (rsi < 45) { dir = "LONG"; }
@@ -222,9 +215,12 @@ export default function useMatrixScanner({
                 else { dir = cmf > 0 ? "LONG" : "SHORT"; }
             }
 
-            // ========================================================
-            // KHỞI TẠO CHIẾN THUẬT BẤT ĐỐI XỨNG (x2, x5, x10)
-            // ========================================================
+            // VÁ LỖI: Tính toán cấu trúc cRegime và tHold trước khi đẩy vào costDrag
+            let cRegime = 1.0; let tHold = 3;
+            if (l1.includes('Trend')) { cRegime = 1.2; tHold = 9; }
+            else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
+            else { cRegime = 0.8; tHold = 2; }
+
             const localObi = realtimeMetrics[targetSymbol]?.obi || 0.5;
             const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
@@ -241,11 +237,6 @@ export default function useMatrixScanner({
 
             const riskDiffTech = Math.abs(entry - sl);
             
-            let cRegime = 1.0; let tHold = 3;
-            if (l1.includes('Trend')) { cRegime = 1.2; tHold = 9; }
-            else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
-            else { cRegime = 0.8; tHold = 2; }
-            
             const minSafeAtrScanner = 0.005;
             const isCompressedScanner = l2 === 'Compression' || bbwRank < 20;
             const currentAtrPercent = entry > 0 ? (atr14 / entry) * 100 : 0;
@@ -257,11 +248,11 @@ export default function useMatrixScanner({
             
             const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
             const realFunding = realtimeMetrics[targetSymbol]?.funding || 0.0002;
-            const localObi = realtimeMetrics[targetSymbol]?.obi || 0.5;
             
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
             
+            // Đã gắn OBI vào CostDrag
             const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, 'LIMIT', 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, 'LIMIT', 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const rewardDiff = Math.abs(tp1 - entry);
@@ -269,8 +260,6 @@ export default function useMatrixScanner({
             let simulatedRR = riskDiffTech > 0 ? ((rewardDiff - costDragWin) / (riskDiffTech + costDragLoss)) : 0;
             if (isNaN(simulatedRR) || !isFinite(simulatedRR) || simulatedRR < 0) simulatedRR = 0;
 
-            const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
-            const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
 
             const obvArrayLocal = [];
@@ -351,7 +340,6 @@ export default function useMatrixScanner({
                                (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
                                (l2 === 'Compression' && bbwSlopeLocal > 10);
 
-            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); 
             const hasNanoCapSynergy = 
                 simulatedRR >= 2.5 && 
                 (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
@@ -360,9 +348,8 @@ export default function useMatrixScanner({
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
             const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 6.5;
-            // ========================================================
-            // OVERRIDES MỚI: BĂT CÁC KÈO X5 - X10 TẠI SCANNER
-            // ========================================================
+
+            // X5 VÀ X10 OVERRIDES
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
             const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
 
