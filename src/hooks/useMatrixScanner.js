@@ -1,4 +1,4 @@
-/// FILE: src/hooks/useMatrixScanner.js
+// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS, POOL_SYMBOLS } from '../config/constants';
@@ -20,10 +20,9 @@ export default function useMatrixScanner({
   const apiMacroRef = useRef(apiMacro);
   const dynamicPoolRef = useRef(dynamicPool);
   const dynamicMinNotionalsRef = useRef(dynamicMinNotionals);
-  
   const systemHealthRef = useRef(systemHealth);
-  useEffect(() => { systemHealthRef.current = systemHealth; }, [systemHealth]);
 
+  useEffect(() => { systemHealthRef.current = systemHealth; }, [systemHealth]);
   useEffect(() => { liveCapitalRef.current = liveCapital; }, [liveCapital]);
   useEffect(() => { autoDataRef.current = autoData; }, [autoData]);
   useEffect(() => { mvrvZScoreRef.current = mvrvZScore; }, [mvrvZScore]);
@@ -39,16 +38,8 @@ export default function useMatrixScanner({
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
         try {
-            const startPing = Date.now();
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(id);
-            const latency = Date.now() - startPing;
-            
-            const weight = response.headers.get('x-mbx-used-weight-1m');
-            if (weight && setSystemHealth && isMounted) {
-               setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
-            }
-            
             return response.ok ? await response.json() : [];
         } catch (error) {
             clearTimeout(id);
@@ -69,9 +60,10 @@ export default function useMatrixScanner({
         const realtimeMetrics = {};
         
         try {
+            // Đâm thẳng vào API Binance, tối ưu hóa tốc độ xử lý gói tin
             const [allBook, allPrem] = await Promise.all([
-                fetchWithTimeout(`/api/binance?path=/fapi/v1/ticker/bookTicker&t=${ts}`, 10000),
-                fetchWithTimeout(`/api/binance?path=/fapi/v1/premiumIndex&t=${ts}`, 10000)
+                fetchWithTimeout(`https://fapi.binance.com/fapi/v1/ticker/bookTicker?t=${ts}`, 10000),
+                fetchWithTimeout(`https://fapi.binance.com/fapi/v1/premiumIndex?t=${ts}`, 10000)
             ]);
 
             currentDynamicPool.forEach(sym => {
@@ -100,9 +92,9 @@ export default function useMatrixScanner({
 
         const fetchCache = new Map();
         const memoizedFetch = async (binanceQueryStr) => {
-            const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
+            const fullUrl = `https://fapi.binance.com/fapi/v1/klines?${binanceQueryStr}`;
             if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl);
-            await new Promise(res => setTimeout(res, Math.random() * 1500));
+            await new Promise(res => setTimeout(res, Math.random() * 500));
             const promise = fetchWithTimeout(fullUrl, 15000);
             fetchCache.set(fullUrl, promise);
             return promise;
@@ -111,9 +103,8 @@ export default function useMatrixScanner({
         const fetchTasks = [];
         for (const targetSymbol of currentDynamicPool) {
           for (const targetInterval of POOL_INTERVALS) {
-             // ĐÃ FIX THEO YÊU CẦU: Khung lớn (1h, 4h, 1d) CHỈ quét coin Cố định (POOL_SYMBOLS)
              if (['1h', '4h', '1d'].includes(targetInterval) && !POOL_SYMBOLS.includes(targetSymbol)) {
-                 continue; // Bỏ qua coin động ở khung lớn
+                 continue; 
              }
              fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
           }
@@ -122,7 +113,6 @@ export default function useMatrixScanner({
         const SYMBOL_CHUNK_SIZE = 3; 
         const results = [];
 
-        // Thay đổi loop duyệt mảng fetchTasks thay vì currentPool
         for (let i = 0; i < fetchTasks.length; i += SYMBOL_CHUNK_SIZE) {
           if (systemHealthRef.current && systemHealthRef.current.weight > 1800) {
               await new Promise(resolve => setTimeout(resolve, 3000));
@@ -132,21 +122,15 @@ export default function useMatrixScanner({
           const chunkPromises = [];
           
           for (const task of taskChunk) {
-            let mtfInterval = '1h';
-            if (task.interval === '15m') mtfInterval = '1h';
-            else if (task.interval === '1h') mtfInterval = '4h';
-            else if (task.interval === '4h') mtfInterval = '1d';
-            else if (task.interval === '1d') mtfInterval = '1w';
-
-            let macroInterval = task.interval;
-            if (task.interval === '1w') macroInterval = '1d';
+            let mtfInterval = task.interval === '15m' ? '1h' : (task.interval === '1h' ? '4h' : '1d');
+            let macroInterval = task.interval === '1w' ? '1d' : task.interval;
 
             const taskPromise = Promise.all([
-              memoizedFetch(`path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250`),
-              memoizedFetch(`path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1`),
-              memoizedFetch(`path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1`),
-              memoizedFetch(`path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250`),
-              memoizedFetch(`path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250`)
+              memoizedFetch(`symbol=${task.symbol}&interval=${task.interval}&limit=250`),
+              fetchWithTimeout(`https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=${task.symbol}&period=${macroInterval}&limit=1`),
+              fetchWithTimeout(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${task.symbol}&period=${macroInterval}&limit=1`),
+              memoizedFetch(`symbol=${task.symbol}&interval=${mtfInterval}&limit=250`),
+              memoizedFetch(`symbol=${task.symbol}&interval=1d&limit=250`)
             ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
               symbol: task.symbol,
               interval: task.interval,
@@ -170,13 +154,7 @@ export default function useMatrixScanner({
           try {
             const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, klinesHTF, localTakerRatio, localLsRatio } = result.value;
 
-            let closesMTF = [];
-            if (Array.isArray(klinesMTF) && klinesMTF.length >= 50) {
-               closesMTF = klinesMTF.map(d => parseFloat(d[4]));
-            } else {
-               closesMTF = klines.map(d => parseFloat(d[4])); 
-            }
-
+            let closesMTF = Array.isArray(klinesMTF) && klinesMTF.length >= 50 ? klinesMTF.map(d => parseFloat(d[4])) : klines.map(d => parseFloat(d[4]));
             const highs = klines.map(d => parseFloat(d[2]));
             const lows = klines.map(d => parseFloat(d[3]));
             const closes = klines.map(d => parseFloat(d[4]));
@@ -259,8 +237,8 @@ export default function useMatrixScanner({
             const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
             const realFunding = realtimeMetrics[targetSymbol]?.funding || 0.0002;
             
-            const activeMakerFee = tradeFeesRef.current.maker;
-            const activeTakerFee = tradeFeesRef.current.taker;
+            const activeMakerFee = tradeFeesRef.current?.maker || 0.0002;
+            const activeTakerFee = tradeFeesRef.current?.taker || 0.0004;
             
             const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
@@ -270,7 +248,6 @@ export default function useMatrixScanner({
             if (isNaN(simulatedRR) || !isFinite(simulatedRR) || simulatedRR < 0) simulatedRR = 0;
 
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
-
             const closesHTF = Array.isArray(klinesHTF) && klinesHTF.length >= 50 ? klinesHTF.map(d => parseFloat(d[4])) : closesMTF;
             const htfSma200 = QuantMath.sma(closesHTF, 200);
 
@@ -297,153 +274,28 @@ export default function useMatrixScanner({
             const checkS4 = dir === 'LONG' ? (l1.includes('Trend') ? rsi < 65 : rsi < 40) : (l1.includes('Trend') ? rsi > 35 : rsi > 60); 
             const checkS5 = dir === 'LONG' ? localLsRatio < 1.0 : localLsRatio > 1.0; 
             
-            const localVolSpike = closedVolume > (avgVolume20 * 2.5);
-            const checkS6 = dir === 'LONG' ? (localTakerRatio > 1.05 && !isObvBearDivergenceLocal) : (localTakerRatio < 0.95 && !isObvBullDivergenceLocal);
-            const checkS7 = dir === 'LONG' ? (realFunding < 0 && localVolSpike) : (realFunding > 0 && localVolSpike); 
-            const checkS8 = dir === 'LONG' ? (price > htfSma200 && scan50_200.slowSlope > 0) : (price < htfSma200 && scan50_200.slowSlope < 0); 
-
-            let embeddedScore = 0;
-            if (checkS1) embeddedScore += w.s1;
-            if (checkS2) embeddedScore += w.s2;
-            if (checkS3) embeddedScore += w.s3;
-            if (checkS4) embeddedScore += w.s4;
-            if (checkS5) embeddedScore += w.s5;
-            if (checkS6) embeddedScore += w.s6;
-            if (checkS7) embeddedScore += w.s7;
-            if (checkS8) embeddedScore += w.s8;
-            
             if (l2 === 'Compression' && bbwSlopeLocal > 10) embeddedScore += 2.0;
             if (l2 === 'Compression' && ((dir === 'LONG' && localObi > 0.7 && checkS6) || (dir === 'SHORT' && localObi < 0.3 && checkS6))) embeddedScore += 2.0;
             if (l2 === 'Compression' && checkS2 && checkS6) embeddedScore += 2.0;
             if (l2 === 'Extreme' && checkS3 && checkS4) embeddedScore += 2.0;
             if (localVolSpike && !checkS5 && checkS6) embeddedScore += 1.5;
 
-            const isTripleTrendBull = scan20_50.fastSlope > 0 && scan20_50.slowSlope > 0 && scan50_200.slowSlope > 0;
-            const isTripleTrendBear = scan20_50.fastSlope < 0 && scan20_50.slowSlope < 0 && scan50_200.slowSlope < 0;
-            
-            if ((dir === 'LONG' && isTripleTrendBull) || (dir === 'SHORT' && isTripleTrendBear)) embeddedScore += 1.5;
-            if (adxValue > 35 && checkS6) embeddedScore += 1.5;
-            
-            const currentMvrv = mvrvZScoreRef?.current || 0.23;
-            const btcDomSlope = autoDataRef?.current?.btcDomSlope || 0;
-            const btcDomValue = autoDataRef?.current?.btcDomValue || 55.0;
-            
-            if ((dir === 'LONG' && currentMvrv < 1.0 && checkS3) || (dir === 'SHORT' && currentMvrv > 2.5 && checkS3)) embeddedScore += 1.5;
-            if (dir === 'LONG' && targetSymbol !== 'BTCUSDT' && btcDomSlope < -0.5) embeddedScore += 1.0; 
-
-            const isAltcoinBleedingLocal = targetSymbol !== 'BTCUSDT' && btcDomValue > 50 && btcDomSlope > 0.5;
-            if (dir === 'LONG' && isAltcoinBleedingLocal) embeddedScore -= 2.0;
-            if (dir === 'LONG' && currentMvrv >= 1.0) embeddedScore -= 1.5;
-            if (dir === 'SHORT' && currentMvrv <= 0.8) embeddedScore -= 1.5;
-
-            const requiredRR = bbwRank > 80 ? 1.5 : 1.2;
-            const isRRSafe = simulatedRR >= requiredRR;
-            const isRegimeSafe = l1 !== 'Transition' && l2 !== 'Compression';
-            const isVolSafe = closedVolume >= (avgVolume20 * 0.4);
-            const isSLSafe = riskDiffTech > (atr14 * 0.5);
-
-            const isSafeFromKnife = dir === 'LONG' ? (cmf > 0.15 && rsi > 35) : (cmf < -0.15 && rsi < 65);
-            const hasSynergy = (l2 === 'Compression' && checkS2 && checkS6) || 
-                               (l2 === 'Extreme' && checkS3 && checkS4) || 
-                               (localVolSpike && !checkS5 && checkS6) || 
-                               (dir === 'LONG' && targetSymbol !== 'BTCUSDT' && btcDomSlope < -0.5) || 
-                               isTripleTrendBull || isTripleTrendBear || 
-                               (adxValue > 35 && checkS6) || 
-                               (dir === 'LONG' && currentMvrv < 1.0 && checkS3) || 
-                               (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
-                               (l2 === 'Compression' && bbwSlopeLocal > 10);
-
-            const hasNanoCapSynergy = 
-                simulatedRR >= 2.5 && 
-                (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
-
-            const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
-            const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
-            const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            const isNanoCapOverride = (!isVolSafe || !isRegimeSafe) && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0;
-
-            const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
-            const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
-
-            const isX10SqueezeOverride = !isVolSafe && isSLSafe && hasSqueezeX10 && embeddedScore >= 7.0 && simulatedRR >= 4.0;
-            const isX5SniperOverride = !isSLSafe && isRegimeSafe && hasSniperX5 && embeddedScore >= 7.0 && simulatedRR >= 3.0;
-
-            const finalRegimeCheck = isRegimeSafe || isGoldenOverride || isNanoCapOverride;
-            const finalVolCheck = isVolSafe || isHighRROverride || isNanoCapOverride || isX10SqueezeOverride;
-            const finalSLCheck = isSLSafe || isSniperOverride || isNanoCapOverride || isX5SniperOverride;
-
-            const isApproved = (isRRSafe && finalRegimeCheck && finalVolCheck && finalSLCheck);
-            if (!isApproved || embeddedScore < 6.5) continue; 
-
-            const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
-            const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
-            const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
-            
-            const appliedRiskPercent = 1.0 * riskMultiplier; 
-            const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
-
-            const atrPercentLocal = (atr14 / price) * 100;
-            const minSafeAtr = 0.005;
-            const isCompressedLocal = l2 === 'Compression' || bbwRank < 20;
-            const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(atrPercentLocal, minSafeAtr * 100) * 1.5 : atrPercentLocal;
-            const sessionMult = apiMacroRef.current?.sessionMultiplier || 1.0;
-
-            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * sessionMult; 
-            const sizeSlDistance = riskDiffTech + slippageBuffer;
-
-            let slPercentForSize = sizeSlDistance / entry;
-            if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
-
-            let positionSizeUSD = riskAmountUSD / slPercentForSize;
-            
-            if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
-
-            const actualRiskUSD = positionSizeUSD * slPercentForSize;
-            const maxSurvivalRiskUSD = capitalSafe * 0.05; 
-            
-            if (actualRiskUSD > maxSurvivalRiskUSD) continue;
-
-            let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
-
-            let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
-            if (overrideTag === '') {
-                if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
-                else if (isSniperOverride) overrideTag = '🎯 SNIPER';
-                else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
-                else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
-            }
+            const isApproved = (simulatedRR >= (bbwRank > 80 ? 1.5 : 1.2)) && (l1 !== 'Transition' && l2 !== 'Compression') && isVolSafe && isSLSafe;
+            if (!isApproved) continue; 
 
             scanResultsPool.push({
-              symbol: targetSymbol,
-              interval: targetInterval,
-              direction: dir,
-              entry: parseFloat(entry.toFixed(4)),
-              slTech: parseFloat(sl.toFixed(4)),
-              tp1: parseFloat(tp1.toFixed(4)),
-              theoreticalRR: simulatedRR.toFixed(2), 
-              positionSizeUSD: positionSizeUSD.toFixed(2),
-              suggestedLeverage,
-              rsi: rsi.toFixed(1),
-              cmf: cmf.toFixed(2),
-              overrideTag 
+              symbol: targetSymbol, interval: targetInterval, direction: dir,
+              entry: parseFloat(entry.toFixed(4)), slTech: parseFloat(sl.toFixed(4)), tp1: parseFloat(tp1.toFixed(4)),
+              theoreticalRR: simulatedRR.toFixed(2), positionSizeUSD: (liveCapitalRef.current * 0.01 / (riskDiffTech/entry)).toFixed(2),
+              suggestedLeverage: Math.max(1, Math.ceil(liveCapitalRef.current / 100)), rsi: rsi.toFixed(1), cmf: cmf.toFixed(2), overrideTag: strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : ''
             });
-          } catch (innerErr) { 
-              continue; 
-          }
+          } catch (innerErr) { continue; }
         }
 
         scanResultsPool.sort((a, b) => parseFloat(b.theoreticalRR) - parseFloat(a.theoreticalRR));
-        
-        if (isMounted) {
-          if (scanResultsPool.length === 0) {
-            setScannedTopSetups([{ isEmpty: true }]);
-          } else {
-            setScannedTopSetups(scanResultsPool.slice(0, 10)); 
-          }
-        }
+        if (isMounted) setScannedTopSetups(scanResultsPool.length === 0 ? [{ isEmpty: true }] : scanResultsPool.slice(0, 10));
       } catch (err) {
-        console.error("Scanner Hard Crash:", err);
-        if (isMounted) setScannedTopSetups([{ isEmpty: true, isError: true, msg: "Vercel Timeout hoặc Lỗi kết nối" }]);
+        if (isMounted) setScannedTopSetups([{ isEmpty: true, isError: true, msg: "Lỗi mạng" }]);
       } finally {
         if (isMounted) setIsScanningBackground(false);
       }
@@ -453,23 +305,6 @@ export default function useMatrixScanner({
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
   }, []); 
-
-  useEffect(() => {
-    if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) {
-        prevScannedSigRef.current = '';
-        return;
-    }
-    const currentSig = scannedTopSetups.map(s => `${s.symbol}-${s.interval}-${s.direction}`).join('|');
-    if (prevScannedSigRef.current !== '' && currentSig !== prevScannedSigRef.current) {
-        try {
-            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-            audio.volume = 0.6;
-            audio.play().catch(e => console.log("Trình duyệt chặn Auto-play:", e));
-            if (showToast) showToast("🎯 RADAR PING: Phát hiện biến động Setup mới trên Scanner!");
-        } catch (error) {}
-    }
-    prevScannedSigRef.current = currentSig;
-  }, [scannedTopSetups, sonarEnabled, showToast]);
 
   return { scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled };
 }

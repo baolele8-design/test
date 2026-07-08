@@ -13,21 +13,11 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
   const [tradeFees, setTradeFees] = useState({ maker: 0.0002, taker: 0.0004 });
 
   const [autoData, setAutoData] = useState(null);
-  const [cmcData, setCmcData] = useState({
-    btcDominanceRealtime: 55.0,
-    totalMarketCapBillion: 0,
-    fgiClassification: 'NEUTRAL'
-  });
+  const [cmcData, setCmcData] = useState({ btcDominanceRealtime: 55.0, totalMarketCapBillion: 0, fgiClassification: 'NEUTRAL' });
 
   const [apiMacro, setApiMacro] = useState({
-    fgiValue: 50,
-    longShortRatio: 1.0,
-    lsPositionVolRatio: 1.0, 
-    takerBuySellRatio: 1.0, 
-    tradingSession: 'ASIAN', 
-    sessionMultiplier: 0.8,
-    isWeekend: false,
-    realSpreadPct: 0.05 
+    fgiValue: 50, longShortRatio: 1.0, lsPositionVolRatio: 1.0, takerBuySellRatio: 1.0,
+    tradingSession: 'ASIAN', sessionMultiplier: 0.8, isWeekend: false, realSpreadPct: 0.05 
   });
 
   const apiMacroRef = useRef(apiMacro);
@@ -39,24 +29,20 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
       const utcHour = now.getUTCHours();
       const day = now.getUTCDay();
       
-      let currentSession = 'ASIAN';
-      let mult = 0.8; 
-      
+      let currentSession = 'ASIAN'; let mult = 0.8; 
       if (utcHour >= 8 && utcHour < 13) { currentSession = 'LONDON'; mult = 1.2; }
       if (utcHour >= 13 && utcHour < 21) { currentSession = 'NEW_YORK'; mult = 1.5; }
       
       const isWknd = (day === 0 || day === 6);
       if (isWknd) mult = mult * 0.5;
-      
-      setApiMacro(prev => ({ 
-        ...prev, isWeekend: isWknd, tradingSession: currentSession, sessionMultiplier: mult
-      }));
+      setApiMacro(prev => ({ ...prev, isWeekend: isWknd, tradingSession: currentSession, sessionMultiplier: mult }));
     };
     detectSessionAndWeekend();
     const timer = setInterval(detectSessionAndWeekend, 60000); 
     return () => clearInterval(timer);
   }, []);
 
+  // ĐỒNG BỘ ĐÒN BẨY VÀ PHÍ TRỰC TIẾP QUA PROXY VERCEL CHỨA API KEY VÌ LÀ LỆNH PRIVATE
   useEffect(() => {
     let isMounted = true;
     const fetchBracketsAndFees = async () => {
@@ -103,20 +89,12 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
     const controller = new AbortController();
 
     const fetchData = async () => {
-      setLoading(true);
       try {
         setSystemError(false); 
-        let mtfInterval = '1h';
-        if (intervalTime === '15m') mtfInterval = '1h';
-        else if (intervalTime === '1h') mtfInterval = '4h';
-        else if (intervalTime === '4h') mtfInterval = '1d';
-        else if (intervalTime === '1d') mtfInterval = '1w';
-
-        let macroInterval = intervalTime;
-        if (intervalTime === '1w') macroInterval = '1d'; 
-
+        let mtfInterval = intervalTime === '15m' ? '1h' : (intervalTime === '1h' ? '4h' : (intervalTime === '4h' ? '1d' : '1w'));
+        let macroInterval = intervalTime === '1w' ? '1d' : intervalTime; 
         const ts = Date.now(); 
-        
+
         const safeFetch = async (url) => {
           try {
             const startPing = Date.now();
@@ -127,27 +105,27 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
             if (weight && setSystemHealth && isMounted) {
                setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
             }
-
             if (!res.ok) return null;
             return await res.json();
           } catch (e) { return null; }
         };
 
+        // ĐỘT PHÁ TỐC ĐỘ: Tách biệt hoàn toàn Public API gọi thẳng Binance, Private API gọi qua Vercel Proxy
         const requests = [
-          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${intervalTime}&limit=250&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=1d&limit=250&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/fundingRate&symbol=${symbol}&limit=10&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/openInterest&symbol=${symbol}&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/openInterestHist&symbol=${symbol}&period=${macroInterval}&limit=30&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/topLongShortPositionRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v2/positionRisk&isPrivate=true&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v2/account&isPrivate=true&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/klines&symbol=BTCDOMUSDT&interval=${mtfInterval}&limit=25&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/ticker/bookTicker&symbol=${symbol}&t=${ts}`),
-          safeFetch(`/api/binance?path=/fapi/v1/premiumIndex&symbol=${symbol}&t=${ts}`)
+          safeFetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${intervalTime}&limit=250`),
+          safeFetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${mtfInterval}&limit=250`),
+          safeFetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1d&limit=250`),
+          safeFetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${symbol}&limit=10`),
+          safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`),
+          safeFetch(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=${macroInterval}&limit=30`),
+          safeFetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=${macroInterval}&limit=1`),
+          safeFetch(`https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=${symbol}&period=${macroInterval}&limit=1`),
+          safeFetch(`https://fapi.binance.com/futures/data/takerlongshortRatio?symbol=${symbol}&period=${macroInterval}&limit=1`),
+          safeFetch(`/api/binance?path=/fapi/v2/positionRisk&isPrivate=true&t=${ts}`), // Giữ lại Vercel (Private)
+          safeFetch(`/api/binance?path=/fapi/v2/account&isPrivate=true&t=${ts}`),      // Giữ lại Vercel (Private)
+          safeFetch(`https://fapi.binance.com/fapi/v1/klines?symbol=BTCDOMUSDT&interval=${mtfInterval}&limit=25`),
+          safeFetch(`https://fapi.binance.com/fapi/v1/ticker/bookTicker?symbol=${symbol}`),
+          safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`)
         ];
 
         const results = await Promise.allSettled(requests);
@@ -180,7 +158,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
             const ask = parseFloat(realBookTicker.askPrice);
             const bidQty = parseFloat(realBookTicker.bidQty || 0);
             const askQty = parseFloat(realBookTicker.askQty || 0);
-            
             if (bid > 0) fetchedSpread = ((ask - bid) / bid) * 100;
             if (bidQty + askQty > 0) fetchedObi = bidQty / (bidQty + askQty);
         }
@@ -232,7 +209,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
              const domCloses = btcDomKlines.map(d => parseFloat(d[4]));
              btcDomValue = domCloses[domCloses.length - 1]; 
              const pastDom = domCloses[0];
-             btcDomSlope = ((btcDomValue - pastDom) / pastDom) * 100;
+             if (pastDom > 0) btcDomSlope = ((btcDomValue - pastDom) / pastDom) * 100;
         }
 
         const closesMTF = klinesMTF.map(d => parseFloat(d[4]));
@@ -256,7 +233,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
         const isObvBearDivergence = (currentPrice > htfSma200) && (obvArray[obvArray.length-1] < obvEma20);
         const isObvBullDivergence = (currentPrice < htfSma200) && (obvArray[obvArray.length-1] > obvEma20);
 
-        // VÁ LỖI ĐỒNG BỘ: Chuyền parameter chính xác cho detectSFP_Advanced
         setAutoData({
             currentPrice, atr14, atrPercent: currentPrice > 0 ? (atr14 / currentPrice) * 100 : 0, atrRank,
             adx: adxValue, htfSma200, rsi: rsiValue, bbwRank, bbw: bollinger20.bbw, cmf: cmfValue,
@@ -278,10 +254,8 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
         });
 
         if (positionsRisk && Array.isArray(positionsRisk)) {
-          const activePositions = positionsRisk.filter(p => parseFloat(p.positionAmt) !== 0);
-          setBinancePositions(activePositions);
+          setBinancePositions(positionsRisk.filter(p => parseFloat(p.positionAmt) !== 0));
         }
-        
         setLastUpdated(new Date());
       } catch (error) { 
         setSystemError(true); 
