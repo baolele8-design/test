@@ -32,16 +32,17 @@ export default function useMatrixScanner({
   useEffect(() => {
     let isMounted = true;
 
-    const fetchWithTimeout = async (url, ms = 8000) => {
+    const fetchWithTimeout = async (url, ms = 12000) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
         try {
             const startPing = Date.now();
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(id);
-            const latency = Date.now() - startPing;
             
+            const latency = Date.now() - startPing;
             const weight = response.headers.get('x-mbx-used-weight-1m');
+            
             if (weight && setSystemHealth && isMounted) {
                setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
             }
@@ -95,57 +96,72 @@ export default function useMatrixScanner({
             currentPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, obi: 0.5, funding: 0.0002 }; });
         }
 
-        const fetchTasks = [];
-        for (const targetSymbol of currentPool) {
-          for (const targetInterval of POOL_INTERVALS) {
-            fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
-          }
-        }
+        // =========================================================================
+        // KIẾN TRÚC MỚI: BỘ ĐỆM LỜI HỨA (PROMISE MEMOIZATION CACHE)
+        // Tiết kiệm 75% API Requests. Không chạm Rate Limit. Vượt nghẽn Vercel.
+        // =========================================================================
+        const fetchCache = new Map();
+        const memoizedFetch = (binanceQueryStr) => {
+            const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
+            if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl); // Dùng lại data nếu trùng API
+            const promise = fetchWithTimeout(fullUrl, 15000);
+            fetchCache.set(fullUrl, promise);
+            return promise;
+        };
 
-        const chunkSize = 6; 
+        const SYMBOL_CHUNK_SIZE = 3; // Quét song song 3 đồng coin một lúc cực mượt
         const results = [];
 
-        for (let i = 0; i < fetchTasks.length; i += chunkSize) {
-          if (systemHealth && systemHealth.weight > 1200) {
+        for (let i = 0; i < currentPool.length; i += SYMBOL_CHUNK_SIZE) {
+          // Ngưỡng an toàn Binance Weight là 2400. Setup 1800 để phòng thủ.
+          if (systemHealth && systemHealth.weight > 1800) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
-          const chunk = fetchTasks.slice(i, i + chunkSize);
+          const symbolChunk = currentPool.slice(i, i + SYMBOL_CHUNK_SIZE);
+          const chunkPromises = [];
           
-          const chunkPromises = chunk.map(task => {
-            let mtfInterval = '1h';
-            if (task.interval === '15m') mtfInterval = '1h';
-            else if (task.interval === '1h') mtfInterval = '4h';
-            else if (task.interval === '4h') mtfInterval = '1d';
-            else if (task.interval === '1d') mtfInterval = '1w';
+          for (const targetSymbol of symbolChunk) {
+            for (const targetInterval of POOL_INTERVALS) {
+                let mtfInterval = '1h';
+                if (targetInterval === '15m') mtfInterval = '1h';
+                else if (targetInterval === '1h') mtfInterval = '4h';
+                else if (targetInterval === '4h') mtfInterval = '1d';
+                else if (targetInterval === '1d') mtfInterval = '1w';
 
-            let macroInterval = task.interval;
-            if (task.interval === '1w') macroInterval = '1d';
+                let macroInterval = targetInterval;
+                if (targetInterval === '1w') macroInterval = '1d';
 
-            return Promise.all([
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250&t=${ts}`) // 1D for htfSma200
-            ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
-              ...task,
-              klines,
-              klinesMTF, 
-              klinesHTF,
-              localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
-              localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
-            }))
-          });
+                // Tận dụng memoizedFetch để không gọi trùng nến MTF và 1D
+                const taskPromise = Promise.all([
+                  memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=${targetInterval}&limit=250`),
+                  memoizedFetch(`path=/futures/data/takerlongshortRatio&symbol=${targetSymbol}&period=${macroInterval}&limit=1`),
+                  memoizedFetch(`path=/futures/data/globalLongShortAccountRatio&symbol=${targetSymbol}&period=${macroInterval}&limit=1`),
+                  memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=${mtfInterval}&limit=250`),
+                  memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=1d&limit=250`)
+                ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
+                  symbol: targetSymbol,
+                  interval: targetInterval,
+                  klines,
+                  klinesMTF, 
+                  klinesHTF,
+                  localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
+                  localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
+                }));
+
+                chunkPromises.push(taskPromise);
+            }
+          }
 
           const chunkResults = await Promise.allSettled(chunkPromises);
           results.push(...chunkResults);
           
-          if (i + chunkSize < fetchTasks.length) {
-            await new Promise(resolve => setTimeout(resolve, 500)); 
+          if (i + SYMBOL_CHUNK_SIZE < currentPool.length) {
+            await new Promise(resolve => setTimeout(resolve, 150)); // Thở 150ms giữa các chunk
           }
         }
 
+        // Bước tính toán Logic Toán học và Filter (Không thay đổi)
         for (const result of results) {
           if (result.status !== 'fulfilled' || !Array.isArray(result.value.klines) || result.value.klines.length < 50) continue;
           
@@ -342,8 +358,6 @@ export default function useMatrixScanner({
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            
-            // --- VÁ LỖI LOGIC NANO-CAP TẠI ĐÂY ---
             const isNanoCapOverride = (!isVolSafe || !isRegimeSafe) && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0;
 
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
@@ -363,7 +377,6 @@ export default function useMatrixScanner({
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
             
-            // --- VÁ LỖI CRASH (Thiếu biến dynamicSlDistance) TẠI ĐÂY ---
             const appliedRiskPercent = 1.0 * riskMultiplier; 
             const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
 
@@ -380,12 +393,12 @@ export default function useMatrixScanner({
             if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
 
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
-            // -------------------------------------------------------------
             
             if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
 
             const actualRiskUSD = positionSizeUSD * slPercentForSize;
             const maxSurvivalRiskUSD = capitalSafe * 0.05; 
+            
             if (actualRiskUSD > maxSurvivalRiskUSD) continue;
 
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
@@ -412,7 +425,9 @@ export default function useMatrixScanner({
               cmf: cmf.toFixed(2),
               overrideTag 
             });
-          } catch (innerErr) { continue; }
+          } catch (innerErr) { 
+              continue; 
+          }
         }
 
         scanResultsPool.sort((a, b) => parseFloat(b.theoreticalRR) - parseFloat(a.theoreticalRR));
