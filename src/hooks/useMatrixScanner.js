@@ -1,8 +1,4 @@
-=========================================
 /// FILE: src\hooks\useMatrixScanner.js
-=========================================
-
-// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
