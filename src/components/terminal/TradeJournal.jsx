@@ -5,16 +5,13 @@ import { supabase } from '../../services/supabase';
 
 export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSupabase, isSyncing, binancePositions }) {
   
-  // 1. TÌM LỆNH GHOST (Chạy trên Binance nhưng không có trên DB)
   const activeLogSymbols = tradeLogs.filter(l => l.status === 'OPEN' || l.status === 'PENDING').map(l => l.symbol);
   const ghostPositions = binancePositions.filter(p => !activeLogSymbols.includes(p.symbol) && parseFloat(p.positionAmt) !== 0);
 
-  // 2. TÍNH TỔNG PNL VÀ SẮP XẾP LỆNH (Memoized để tối ưu hiệu năng)
   const { sortedLogs, totalRealized, totalFloating, netTotalPnL } = useMemo(() => {
     let realized = 0;
     let floating = 0;
 
-    // Tính PnL
     tradeLogs.forEach(log => {
       if (log.status === 'WIN' || log.status === 'LOSS') {
         realized += parseFloat(log.pnl_usd || 0);
@@ -27,14 +24,12 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
       }
     });
 
-    // Thuật toán phân cấp trạng thái
     const priority = { 'OPEN': 1, 'PENDING': 2, 'WIN': 3, 'LOSS': 4 };
     
     const sorted = [...tradeLogs].sort((a, b) => {
       const pA = priority[a.status] || 99;
       const pB = priority[b.status] || 99;
       if (pA !== pB) return pA - pB;
-      // Nếu cùng trạng thái, xếp theo thời gian mới nhất lên đầu
       return new Date(b.created_at) - new Date(a.created_at);
     });
 
@@ -46,24 +41,51 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
     };
   }, [tradeLogs, binancePositions]);
 
-  // 3. HÀM XÓA LỆNH KHỎI DATABASE
-  const handleDeleteLog = async (id, symbol) => {
-    const isConfirmed = window.confirm(`CẢNH BÁO: Bạn có chắc chắn muốn xóa vĩnh viễn nhật ký lệnh ${symbol}? Hành động này không thể hoàn tác.`);
-    if (isConfirmed) {
-      try {
-        const { error } = await supabase.from('trade_logs').delete().eq('id', id);
-        if (error) throw error;
-        // Giao diện sẽ tự mất nhờ eventType === 'DELETE' bên App.jsx
-      } catch (err) {
-        alert("Lỗi khi xóa lệnh: " + err.message);
+  // 3. HÀM XÓA LỆNH ĐƯỢC BẢO VỆ (CHỈ BẮN TỈA LỆNH ĐÍCH DANH)
+  const handleDeleteLog = async (log) => {
+    // CHẶN: Đang vào vị thế thực thì KHÔNG ĐƯỢC XÓA BẤT CHẤP
+    if (log.status === 'OPEN') {
+        alert(`⛔ KHÔNG THỂ XÓA: Lệnh ${log.symbol} đang chạy thực tế trên sàn. Bạn phải ĐÓNG VỊ THẾ (Close Position) trên app Binance trước!`);
+        return;
+    }
+
+    const isConfirmed = window.confirm(`CẢNH BÁO: Xóa sổ tay lệnh ${log.symbol} [Trạng thái: ${log.status}]?`);
+    if (!isConfirmed) return;
+
+    try {
+      if (log.status === 'PENDING') {
+        // Gửi lệnh Cancel tới Local Bridge kèm theo các mốc giá để nhắm bắn chính xác
+        const LOCAL_BRIDGE_URL = 'http://192.168.1.60:1337/api/cancel-smart';
+        const cancelRes = await fetch(LOCAL_BRIDGE_URL, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              symbol: log.symbol,
+              entry: log.entry,
+              sl: log.sl,
+              tp: log.tp_1_price
+            })
+        });
+        
+        const cancelData = await cancelRes.json();
+        if (!cancelRes.ok) {
+           throw new Error(cancelData.details?.msg || cancelData.error || "Lỗi Bridge Cục bộ");
+        }
+        console.log(cancelData.message);
       }
+
+      // Xóa ở Supabase khi các lệnh con trên Binance đã bị gỡ bỏ an toàn
+      const { error } = await supabase.from('trade_logs').delete().eq('id', log.id);
+      if (error) throw error;
+      
+    } catch (err) {
+      alert("Lỗi khi hủy/xóa lệnh: " + err.message);
     }
   };
-
+  
   return (
     <div className="bg-[#111116] border border-slate-800 rounded-xl p-4 shadow-xl mt-6">
       
-      {/* HEADER & NÚT ĐỒNG BỘ */}
       <div className="flex justify-between items-center mb-4 border-b border-slate-800/80 pb-3">
         <h2 className="text-[12px] font-black text-slate-300 uppercase flex items-center gap-2 tracking-widest">
           <History className="w-4 h-4 text-purple-500" /> SỔ TAY LƯỢNG TỬ (SUPABASE)
@@ -78,7 +100,6 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
         </button>
       </div>
 
-      {/* TỔNG QUAN PNL DASHBOARD */}
       <div className="flex gap-4 mb-4 text-[10px] font-mono bg-[#0a0a0c] p-3 rounded-lg border border-slate-800 shadow-inner">
         <div className="flex flex-col flex-1">
           <span className="text-slate-500 font-bold mb-1 flex items-center gap-1"><Calculator className="w-3 h-3"/> REALIZED (ĐÃ CHỐT)</span>
@@ -100,7 +121,6 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
         </div>
       </div>
 
-      {/* BẢNG QUẢN LÝ LỆNH */}
       <div className="overflow-x-auto max-h-[400px]" style={{ scrollbarWidth: 'thin', scrollbarColor: '#065f46 #0a0a0c' }}>
         <table className="w-full text-left border-collapse relative">
           <thead className="sticky top-0 bg-[#111116] z-10 shadow-md">
@@ -114,7 +134,6 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
           </thead>
           <tbody className="text-[10px] font-mono">
             
-            {/* IN RA CÁC LỆNH GHOST TRƯỚC TIÊN */}
             {ghostPositions.map(pos => {
               const isLong = parseFloat(pos.positionAmt) > 0;
               const pnl = parseFloat(pos.unRealizedProfit);
@@ -142,7 +161,6 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
               );
             })}
 
-            {/* IN RA LỊCH SỬ LỆNH (Hiển thị 30 lệnh gần nhất) */}
             {sortedLogs.length === 0 && ghostPositions.length === 0 ? (
               <tr><td colSpan="5" className="text-center py-6 text-slate-600 font-bold">KHÔNG CÓ DỮ LIỆU GIAO DỊCH</td></tr>
             ) : (
@@ -152,7 +170,6 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
                 let displayPnl = parseFloat(log.pnl_usd || 0);
                 let displayEntry = parseFloat(log.entry || 0);
 
-                // ƯU TIÊN SỐ 1: BỐC DATA PNL THẬT TỪ BINANCE NẾU ĐANG CHẠY
                 if (isLive || isPending) {
                    const actualPos = binancePositions.find(p => p.symbol === log.symbol);
                    if (actualPos) {
@@ -190,7 +207,7 @@ export default function TradeJournal({ tradeLogs, currentPrice, syncBinanceToSup
                     </td>
                     <td className="py-2.5 text-center">
                       <button 
-                        onClick={() => handleDeleteLog(log.id, log.symbol)}
+                        onClick={() => handleDeleteLog(log)} // ĐÃ FIX: TRUYỀN TOÀN BỘ OBJECT LOG
                         className="text-slate-600 hover:text-red-500 hover:bg-red-950/30 p-1.5 rounded transition-all opacity-20 group-hover:opacity-100"
                         title="Xóa lệnh này"
                       >
