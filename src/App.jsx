@@ -166,7 +166,7 @@ export default function AntiFragileTerminal() {
   }, [lastUpdated, apiMacro, vectorRegime, tradeSetup.direction, mvrvZScore, symbol]);
 
   const mathCore = useMemo(() => {
-    const safeResult = { appliedRiskPercent: 1.0, slPercent: "0.00", riskAmountUSD: "0.00", positionSizeUSD: "0.00", marginUsedUSD: "0.00", suggestedLeverage: 1, theoreticalRR: "0.00", trueEVValue: "0.00", kellyPct: 0, liqEstimate: null, liqSafetyMargin: 0, leverageExceedsExchangeCap: false, dynamicSlDistance: 0, hasMinNotionalError: false, isSizeForcedByExchange: false };
+    const safeResult = { appliedRiskPercent: 1.0, slPercent: "0.00", riskAmountUSD: "0.00", positionSizeUSD: "0.00", marginUsedUSD: "0.00", suggestedLeverage: 1, theoreticalRR: "0.00", trueEVValue: "0.00", kellyPct: 0, liqEstimate: null, liqSafetyMargin: 0, leverageExceedsExchangeCap: false, dynamicSlDistance: 0, isSizeForcedByExchange: false };
     if (!autoData || !vectorRegime || !tradeSetup.entry || tradeSetup.entry <= 0 || tradeSetup.slTech <= 0) return safeResult;
     
     const riskDiffTech = Math.abs(tradeSetup.entry - tradeSetup.slTech);
@@ -202,22 +202,15 @@ export default function AntiFragileTerminal() {
     if (!isFinite(positionSizeUSD) || isNaN(positionSizeUSD)) positionSizeUSD = 0;
 
     // SỬA CƠ CHẾ CHẶN RISK KHI BỊ SÀN ÉP SIZE (mathCore)
+    const targetMinThreshold = dynamicMinNotionals[symbol] || 5.0; 
+    let isSizeForcedByExchange = false;
       
-      const targetMinThreshold = dynamicMinNotionals[symbol] || 5.0; 
-      let hasMinNotionalError = false; let isSizeForcedByExchange = false;
-      
-      if (positionSizeUSD > 0 && positionSizeUSD < targetMinThreshold) {
-          positionSizeUSD = targetMinThreshold; 
-          isSizeForcedByExchange = true;
-          const newRiskUSD = positionSizeUSD * slPercentForSize; 
-          riskAmountUSD = newRiskUSD;
-          
-          // HẠ NGƯỠNG CHẶN CỨNG TỪ 5% XUỐNG 2.5% VỐN
-          // Nếu sàn ép size làm risk vượt quá 2.5% vốn, khóa mẹnh lập tức.
-          if (newRiskUSD > capitalSafe * 0.025) {
-              hasMinNotionalError = true;
-          }
-      }
+    if (positionSizeUSD > 0 && positionSizeUSD < targetMinThreshold) {
+        positionSizeUSD = targetMinThreshold; 
+        isSizeForcedByExchange = true;
+        riskAmountUSD = positionSizeUSD * slPercentForSize; 
+  
+    }
     let suggestedLeverage = 1; let marginUsedUSD = positionSizeUSD;
     if (tradeSetup.tradeType === 'FUTURES') {
        let minRequiredLev = positionSizeUSD / (capitalSafe * 0.9 || 1);
@@ -242,7 +235,7 @@ export default function AntiFragileTerminal() {
       appliedRiskPercent: appliedRiskPercent.toFixed(2),
       slPercentForSize: (slPercentForSize * 100).toFixed(2), riskAmountUSD: riskAmountUSD.toFixed(2), positionSizeUSD: positionSizeUSD.toFixed(2), marginUsedUSD: marginUsedUSD.toFixed(2),
       suggestedLeverage, theoreticalRR: theoreticalRR.toFixed(2), trueEVValue: trueEVCalc.toFixed(3), kellyPct: (kellyDec * 100).toFixed(2),
-      liqEstimate, liqSafetyMargin, leverageExceedsExchangeCap, dynamicSlDistance: sizeSlDistance, hasMinNotionalError, isSizeForcedByExchange
+      liqEstimate, liqSafetyMargin, leverageExceedsExchangeCap, dynamicSlDistance: sizeSlDistance, isSizeForcedByExchange
     };
   }, [autoData, apiMacro, liveCapital, tradeSetup, symbol, tradeStats, leverageBrackets, vectorRegime, tradeFees, dynamicMinNotionals, systemScore.score, intervalTime]);
 
@@ -292,7 +285,7 @@ export default function AntiFragileTerminal() {
         {
           id: "Agent_5",
           role: "Nhà quản trị Rủi ro Tồn tại (Survival Risk & Liquidation)",
-          focusPrompt: `Đòn bẩy dự kiến: ${mathCore.suggestedLeverage}x. Rủi ro thực tế (Non-linear Scaled): $${mathCore.riskAmountUSD} (${mathCore.appliedRiskPercent}%). Khoảng cách Thanh lý (Safety Margin): ${mathCore.liqSafetyMargin > 0 ? (mathCore.liqSafetyMargin*100).toFixed(0)+'%' : 'N/A'}. Cảnh báo Min Notional: ${mathCore.hasMinNotionalError}. Hãy đánh giá rủi ro cháy tài khoản (Ruin Risk) nếu gặp Flash Crash.`
+          focusPrompt: `Đòn bẩy dự kiến: ${mathCore.suggestedLeverage}x. Rủi ro thực tế (Non-linear Scaled): $${mathCore.riskAmountUSD} (${mathCore.appliedRiskPercent}%). Khoảng cách Thanh lý (Safety Margin): ${mathCore.liqSafetyMargin > 0 ? (mathCore.liqSafetyMargin*100).toFixed(0)+'%' : 'N/A'}. Hãy đánh giá rủi ro cháy tài khoản (Ruin Risk) nếu gặp Flash Crash.`
         }
       ];
 

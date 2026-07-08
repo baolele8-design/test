@@ -222,19 +222,14 @@ export default function useMatrixScanner({
             else if (volScoreLocal > 65) l2 = "Expansion";
             else l2 = "Normal";
 
-            let dir = l1.includes('Trend Up') ? 'LONG' : 'SHORT'; 
-            let execType = 'LIMIT';
-            if (l1 === 'Range' || l2 === 'Extreme') {
-                if (rsi < 45) { dir = "LONG"; }
-                else if (rsi > 55) { dir = "SHORT"; }
-                else { dir = cmf > 0 ? "LONG" : "SHORT"; }
-                execType = 'MARKET'; 
-            }
-
+            // cRegime/tHold/execType: CHỈ phụ thuộc vào Regime (l1/l2), KHÔNG phụ thuộc hướng lệnh
+            // => tính 1 lần duy nhất, dùng chung cho cả 2 hướng LONG/SHORT bên dưới.
             let cRegime = 1.0; let tHold = 3;
             if (l1.includes('Trend')) { cRegime = 1.2; tHold = 9; }
             else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
             else { cRegime = 0.8; tHold = 2; }
+
+            const execType = (l1 === 'Range' || l2 === 'Extreme') ? 'MARKET' : 'LIMIT';
 
             const localObi = realtimeMetrics[targetSymbol]?.obi !== undefined ? realtimeMetrics[targetSymbol].obi : 0.5;
             const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
@@ -269,31 +264,6 @@ export default function useMatrixScanner({
             if (isAltcoinBleedingLocal) l6 += " (Altcoin Bleeding)"; 
             else if (isAltcoinSeasonLocal) l6 += " (Altcoin Season)";
 
-            const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
-                bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
-                (atr14/price)*100, localObi, dir
-            );
-
-            let suggestedEntry = price;
-            if (!(l1 === 'Range' || l2 === 'Extreme')) {
-                suggestedEntry = dir === 'LONG' ? price - (0.5 * atr14) : price + (0.5 * atr14);
-            }
-            const entry = suggestedEntry;
-            const sl = dir === 'LONG' ? entry - (slMult * atr14) : entry + (slMult * atr14);
-            const tp1 = dir === 'LONG' ? entry + (tpMult * atr14) : entry - (tpMult * atr14);
-
-            const riskDiffTech = Math.abs(entry - sl);
-            
-            const activeMakerFee = tradeFeesRef.current.maker;
-            const activeTakerFee = tradeFeesRef.current.taker;
-            
-            const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
-            const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
-            const rewardDiff = Math.abs(tp1 - entry);
-            
-            let simulatedRR = riskDiffTech > 0 ? ((rewardDiff - costDragWin) / (riskDiffTech + costDragLoss)) : 0;
-            if (isNaN(simulatedRR) || !isFinite(simulatedRR) || simulatedRR < 0) simulatedRR = 0;
-
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
             const closesHTF = Array.isArray(klinesHTF) && klinesHTF.length >= 50 ? klinesHTF.map(d => parseFloat(d[4])) : closesMTF;
             const htfSma200 = QuantMath.sma(closesHTF, 200);
@@ -311,6 +281,7 @@ export default function useMatrixScanner({
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
             // BẢN VÁ: Đồng bộ Mock Data triệt để không để bất kỳ trường nào null/0 gây rớt Gate
+            // Lưu ý: object này KHÔNG phụ thuộc hướng lệnh (direction được truyền riêng vào evaluateScore/evaluateGates)
             const localAutoData = {
                 currentPrice: price,
                 atr14: atr14,
@@ -362,71 +333,134 @@ export default function useMatrixScanner({
 
             const currentMinNotional = dynamicMinNotionalsRef.current?.[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 100.0; 
-            
-            const draftSystemScore = TradeValidator.evaluateScore(
-                localAutoData, localApiMacro, mockVectorDetails, dir, currentMvrv, targetSymbol
-            );
-            
-            const riskMultiplier = Math.max(0.5, Math.min(2.0, (draftSystemScore.score - 5) / 3));
-            const appliedRiskPercent = 1.0 * riskMultiplier; 
-            let riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
 
-            const isCompressedLocal = l2 === 'Compression' || bbwRank < 20;
-            const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(localAutoData.atrPercent, 0.5) * 1.5 : localAutoData.atrPercent;
-            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * localApiMacro.sessionMultiplier; 
-            const sizeSlDistance = riskDiffTech + slippageBuffer;
+            // ============================================================
+            // BƯỚC 1: SINH TOÀN BỘ ỨNG VIÊN — thử cả 2 hướng LONG/SHORT,
+            // với mỗi hướng thử toàn bộ chiến thuật khả dụng theo điều kiện
+            // thị trường hiện tại (Tiêu chuẩn / Squeeze / Sniper SFP / Whale).
+            // ============================================================
+            const candidateResults = [];
 
-            let slPercentForSize = sizeSlDistance / entry;
-            if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
+            for (const candDir of ['LONG', 'SHORT']) {
+                const candSuggestedEntry = execType === 'MARKET'
+                    ? price
+                    : (candDir === 'LONG' ? price - (0.5 * atr14) : price + (0.5 * atr14));
 
-            let positionSizeUSD = riskAmountUSD / slPercentForSize;
-            let hasMinNotionalErrorLocal = false;
-            
-            if (positionSizeUSD > 0 && positionSizeUSD < currentMinNotional) {
-                positionSizeUSD = currentMinNotional; 
-                const forcedRiskUSD = positionSizeUSD * slPercentForSize;
-                if (forcedRiskUSD > capitalSafe * 0.025) {
-                    hasMinNotionalErrorLocal = true;
+                const candIsSfp = candDir === 'LONG' ? localSfpLong : localSfpShort;
+                const strategyVariants = QuantMath.getStrategyVariants(
+                    bbwRank, bbwSlopeLocal, candIsSfp, (atr14 / price) * 100, localObi, candDir
+                );
+
+                for (const variant of strategyVariants) {
+                    const candEntry = candSuggestedEntry;
+                    const candSl = candDir === 'LONG'
+                        ? candEntry - (variant.slMult * atr14)
+                        : candEntry + (variant.slMult * atr14);
+                    const candTp1 = candDir === 'LONG'
+                        ? candEntry + (variant.tpMult * atr14)
+                        : candEntry - (variant.tpMult * atr14);
+
+                    const candRiskDiffTech = Math.abs(candEntry - candSl);
+                    if (candRiskDiffTech <= 0) continue;
+
+                    const activeMakerFee = tradeFeesRef.current.maker;
+                    const activeTakerFee = tradeFeesRef.current.taker;
+
+                    const candCostDragLoss = QuantMath.costDrag(candEntry, 'FUTURES', candDir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
+                    const candCostDragWin = QuantMath.costDrag(candEntry, 'FUTURES', candDir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
+                    const candRewardDiff = Math.abs(candTp1 - candEntry);
+
+                    let candRR = candRiskDiffTech > 0 ? ((candRewardDiff - candCostDragWin) / (candRiskDiffTech + candCostDragLoss)) : 0;
+                    if (isNaN(candRR) || !isFinite(candRR) || candRR < 0) candRR = 0;
+
+                    candidateResults.push({
+                        dir: candDir,
+                        entry: candEntry,
+                        sl: candSl,
+                        tp1: candTp1,
+                        riskDiffTech: candRiskDiffTech,
+                        rr: candRR,
+                        strategyName: variant.strategyName
+                    });
                 }
             }
 
-            const mockMathCore = {
-                theoreticalRR: simulatedRR.toFixed(2),
-                hasMinNotionalError: hasMinNotionalErrorLocal, 
-                liqEstimate: { liqPrice: 0, maxLevForTier: 50 }, 
-                leverageExceedsExchangeCap: false,
-                liqSafetyMargin: 2.0
-            };
+            // ============================================================
+            // BƯỚC 2: LỌC LOGIC GATES cho từng ứng viên, chỉ giữ những
+            // ứng viên PASS, rồi so sánh R:R để chọn ứng viên tốt nhất.
+            // ============================================================
+            let bestCandidate = null;
 
-            const localSystemScore = TradeValidator.evaluateScore(
-                localAutoData, localApiMacro, mockVectorDetails, dir, currentMvrv, targetSymbol
-            );
+            for (const cand of candidateResults) {
+                const candSystemScore = TradeValidator.evaluateScore(
+                    localAutoData, localApiMacro, mockVectorDetails, cand.dir, currentMvrv, targetSymbol
+                );
 
-            const localGates = TradeValidator.evaluateGates(
-                localAutoData, localApiMacro, mockVectorDetails, mockMathCore, 
-                dir, 'FUTURES', entry, sl, localSystemScore, tradeLogs, targetSymbol
-            );
+                const riskMultiplier = Math.max(0.5, Math.min(2.0, (candSystemScore.score - 5) / 3));
+                const appliedRiskPercent = 1.0 * riskMultiplier;
+                let riskAmountUSD = capitalSafe * (appliedRiskPercent / 100);
 
-            if (!localGates.isApproved) continue;
+                const isCompressedLocal = l2 === 'Compression' || bbwRank < 20;
+                const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(localAutoData.atrPercent, 0.5) * 1.5 : localAutoData.atrPercent;
+                const slippageBuffer = cand.entry * (effectiveAtrPercentLocal / 100) * cRegime * localApiMacro.sessionMultiplier;
+                const sizeSlDistance = cand.riskDiffTech + slippageBuffer;
 
-            let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
-            let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
+                let slPercentForSize = sizeSlDistance / cand.entry;
+                if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
+
+                let positionSizeUSD = riskAmountUSD / slPercentForSize;
+                let hasMinNotionalErrorLocal = false;
+
+                if (positionSizeUSD > 0 && positionSizeUSD < currentMinNotional) {
+                    positionSizeUSD = currentMinNotional;
+                    const forcedRiskUSD = positionSizeUSD * slPercentForSize;
+                    if (forcedRiskUSD > capitalSafe * 0.025) {
+                        hasMinNotionalErrorLocal = true;
+                    }
+                }
+
+                const candMathCore = {
+                    theoreticalRR: cand.rr.toFixed(2),
+                    hasMinNotionalError: hasMinNotionalErrorLocal,
+                    liqEstimate: { liqPrice: 0, maxLevForTier: 50 },
+                    leverageExceedsExchangeCap: false,
+                    liqSafetyMargin: 2.0
+                };
+
+                const candGates = TradeValidator.evaluateGates(
+                    localAutoData, localApiMacro, mockVectorDetails, candMathCore,
+                    cand.dir, 'FUTURES', cand.entry, cand.sl, candSystemScore, tradeLogs, targetSymbol
+                );
+
+                if (!candGates.isApproved) continue;
+
+                // Chỉ giữ lại ứng viên có R:R ròng cao nhất trong số các ứng viên đã PASS Gate
+                if (!bestCandidate || cand.rr > bestCandidate.rr) {
+                    bestCandidate = { ...cand, positionSizeUSD, gates: candGates };
+                }
+            }
+
+            // Không có ứng viên nào (dù đã thử cả 2 hướng x nhiều chiến thuật) pass Gate => bỏ qua symbol/interval này
+            if (!bestCandidate) continue;
+
+            let suggestedLeverage = Math.max(1, Math.ceil(bestCandidate.positionSizeUSD / (capitalSafe * 0.9)));
+            let overrideTag = bestCandidate.strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? bestCandidate.strategyName : '';
             if (overrideTag === '') {
-                if (localGates.isNanoOverride) overrideTag = '🦠 NANO-CAP';
-                else if (localGates.isSniperOverride) overrideTag = '🎯 SNIPER';
-                else if (localGates.isHighRROverride) overrideTag = '🚀 ASYM-RR';
-                else if (localGates.isGoldenOverride) overrideTag = '⚡ GOLDEN';
+                if (bestCandidate.gates.isNanoOverride) overrideTag = '🦠 NANO-CAP';
+                else if (bestCandidate.gates.isSniperOverride) overrideTag = '🎯 SNIPER';
+                else if (bestCandidate.gates.isHighRROverride) overrideTag = '🚀 ASYM-RR';
+                else if (bestCandidate.gates.isGoldenOverride) overrideTag = '⚡ GOLDEN';
             }
 
             scanResultsPool.push({
               symbol: targetSymbol,
               interval: targetInterval,
-              direction: dir,
-              entry: parseFloat(entry.toFixed(4)),
-              slTech: parseFloat(sl.toFixed(4)),
-              tp1: parseFloat(tp1.toFixed(4)),
-              theoreticalRR: simulatedRR.toFixed(2), 
-              positionSizeUSD: positionSizeUSD.toFixed(2),
+              direction: bestCandidate.dir,
+              entry: parseFloat(bestCandidate.entry.toFixed(4)),
+              slTech: parseFloat(bestCandidate.sl.toFixed(4)),
+              tp1: parseFloat(bestCandidate.tp1.toFixed(4)),
+              theoreticalRR: bestCandidate.rr.toFixed(2), 
+              positionSizeUSD: bestCandidate.positionSizeUSD.toFixed(2),
               suggestedLeverage,
               rsi: rsi.toFixed(1),
               cmf: cmf.toFixed(2),

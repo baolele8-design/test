@@ -71,7 +71,6 @@ export const TradeValidator = {
       { id: 'h3_1', passed: l1 !== 'Transition', text: `REGIME LOCK: Xu hướng rõ ràng` },
       { id: 'h3_2', passed: l2 !== 'Compression', text: `VOLATILITY: Không giao dịch trong vùng Nén` },
       { id: 'h4', passed: tradeType === 'SPOT' || (mathCore.liqEstimate && !mathCore.leverageExceedsExchangeCap && mathCore.liqSafetyMargin >= 1.3), text: `ĐỆM THANH LÝ: An toàn Margin` },
-      { id: 'h5', passed: !mathCore.hasMinNotionalError, text: `MIN NOTIONAL: Risk bị ép <= 2.5% Vốn` },
       { id: 'h6', passed: autoData.lastClosedVolume >= (autoData.avgVolume20 * 0.4), text: `VOL DEADZONE: Thanh khoản ổn định` }
     ];
 
@@ -99,11 +98,11 @@ export const TradeValidator = {
     const isOnlySLFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h1');
     const isSniperOverride = isOnlySLFailed && checks.checkS3;
 
-    // BẢN VÁ: R:R >= 2.5 LÀ VUA. 
-    // Hệ thống sẽ cho phép duyệt lệnh miễn là KHÔNG vi phạm Min Notional (Rủi ro cháy tài khoản).
-    const isHighRROverride = parseFloat(mathCore.theoreticalRR) >= 2.5 && !mathCore.hasMinNotionalError && !failedGates.some(g => g.id === 'h_cd');
+    // Xóa chặn Min Notional ở isHighRROverride và isNanoCapSniper
+    const isHighRROverride = parseFloat(mathCore.theoreticalRR) >= 2.5 && !failedGates.some(g => g.id === 'h_cd');
 
-    const isNanoCapSniper = parseFloat(mathCore.theoreticalRR) >= 2.5 && (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (direction === 'LONG' && autoData.obi > 0.7) || (direction === 'SHORT' && autoData.obi < 0.3)) && !mathCore.hasMinNotionalError;
+    const isNanoCapSniper = parseFloat(mathCore.theoreticalRR) >= 2.5 && (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (direction === 'LONG' && autoData.obi > 0.7) || (direction === 'SHORT' && autoData.obi < 0.3));
+    
     const isNanoOverride = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h6') && isNanoCapSniper;
 
     // BẢN VÁ DẤU NGOẶC ĐƠN QUAN TRỌNG NHẤT: Đưa điều kiện Score vào kẹp chung với từng Override

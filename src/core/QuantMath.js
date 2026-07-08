@@ -235,11 +235,12 @@ const QuantMath = {
     }
   },
 
+  // GIỮ NGUYÊN: dùng cho phần đánh tay (App.jsx -> handleMasterAuto).
+  // Chỉ trả về DUY NHẤT 1 chiến thuật ưu tiên cao nhất theo thứ tự if/else.
   dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
-      // VÁ LỖI TOÁN HỌC: Adaptive RR Base để không bao giờ rớt isRRSafe trong Scanner
       const requiredRR = bbwRank > 80 ? 2.0 : 1.8;
       let slMult = 1.5; 
-      let tpMult = slMult * (requiredRR + 0.3); // Tự động nới TP xa ra để đền bù phí giao dịch
+      let tpMult = slMult * (requiredRR + 0.3);
       let strategyName = "TIÊU CHUẨN (ADAPTIVE)";
 
       const noiseBuffer = atrPercent > 2.0 ? 0.2 : 0;
@@ -263,6 +264,55 @@ const QuantMath = {
       }
 
       return { tpMult, slMult, strategyName };
+  },
+
+  // MỚI: Thay vì chỉ trả về 1 chiến thuật, hàm này trả về TOÀN BỘ các chiến thuật
+  // hợp lệ với điều kiện thị trường hiện tại (bao gồm cả "Tiêu chuẩn" luôn có mặt),
+  // để phía gọi hàm (Matrix Scanner) có thể tính R:R cho từng chiến thuật rồi so sánh,
+  // thay vì chỉ nhận 1 chiến thuật duy nhất bị áp đặt sẵn theo thứ tự if/else.
+  getStrategyVariants: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
+      const requiredRR = bbwRank > 80 ? 2.0 : 1.8;
+      const noiseBuffer = atrPercent > 2.0 ? 0.2 : 0;
+      const variants = [];
+
+      // 1. Luôn có mặt: chiến thuật Tiêu chuẩn (baseline, an toàn nhất)
+      variants.push({
+          tpMult: 1.5 * (requiredRR + 0.3),
+          slMult: 1.5,
+          strategyName: "TIÊU CHUẨN (ADAPTIVE)"
+      });
+
+      // 2. Chỉ xuất hiện khi đang Nén cực mạnh + gia tốc giãn nở (Squeeze sắp nổ)
+      if (bbwRank <= 15 && bbwSlope > 10) {
+          variants.push({
+              tpMult: 7.0,
+              slMult: 1.0 + noiseBuffer,
+              strategyName: "🚀 X10 SQUEEZE BREAKOUT"
+          });
+      }
+
+      // 3. Chỉ xuất hiện khi có SFP quét thanh khoản CÙNG hướng lệnh và OBI đồng thuận
+      if (isSfp) {
+          const isAligned = (direction === 'LONG' && obi > 0.70) || (direction === 'SHORT' && obi < 0.30);
+          if (isAligned) {
+              variants.push({
+                  tpMult: 4.0,
+                  slMult: 0.6 + (noiseBuffer / 2),
+                  strategyName: "🎯 X5 SNIPER SFP"
+              });
+          }
+      }
+
+      // 4. Chỉ xuất hiện khi Orderbook mất cân bằng cực đoan (Whale wall 1 phía)
+      if (obi > 0.85 || obi < 0.15) {
+          variants.push({
+              tpMult: 3.0,
+              slMult: 1.2 + noiseBuffer,
+              strategyName: "🐳 WHALE IMBALANCE (X3)"
+          });
+      }
+
+      return variants;
   },
 
   estimateLiquidation: (notionalUSD, leverage, entry, direction, brackets) => {
