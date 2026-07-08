@@ -1,3 +1,7 @@
+=========================================
+/// FILE: src\hooks\useMatrixScanner.js
+=========================================
+
 // FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
@@ -126,11 +130,13 @@ export default function useMatrixScanner({
               fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
-            ]).then(([klines, takerData, lsData, klinesMTF]) => ({
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250&t=${ts}`) // ĐÃ VÁ: Lấy 1D cho htfSma200
+            ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
               ...task,
               klines,
               klinesMTF, 
+              klinesHTF,
               localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
               localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
             }))
@@ -148,7 +154,7 @@ export default function useMatrixScanner({
           if (result.status !== 'fulfilled' || !Array.isArray(result.value.klines) || result.value.klines.length < 50) continue;
           
           try {
-            const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, localTakerRatio, localLsRatio } = result.value;
+            const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, klinesHTF, localTakerRatio, localLsRatio } = result.value;
 
             let closesMTF = [];
             if (Array.isArray(klinesMTF) && klinesMTF.length >= 50) {
@@ -203,14 +209,13 @@ export default function useMatrixScanner({
             else if (volScoreLocal > 65) l2 = "Expansion";
             else l2 = "Normal";
 
-            // ĐỒNG BỘ ĐỘNG LUỒNG KHỚP LỆNH CHUẨN XÁC VỚI APP.JSX
             let dir = l1.includes('Trend Up') ? 'LONG' : 'SHORT'; 
             let execType = 'LIMIT';
             if (l1 === 'Range' || l2 === 'Extreme') {
                 if (rsi < 45) { dir = "LONG"; }
                 else if (rsi > 55) { dir = "SHORT"; }
                 else { dir = cmf > 0 ? "LONG" : "SHORT"; }
-                execType = 'MARKET'; // Đã đồng bộ luồng gán lệnh MARKET
+                execType = 'MARKET'; 
             }
 
             let cRegime = 1.0; let tHold = 3;
@@ -218,13 +223,13 @@ export default function useMatrixScanner({
             else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
             else { cRegime = 0.8; tHold = 2; }
 
-            // VÁ LỖI 1: Sửa .spread thành .obi cực kỳ nghiêm túc
             const localObi = realtimeMetrics[targetSymbol]?.obi !== undefined ? realtimeMetrics[targetSymbol].obi : 0.5;
             
             const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
             const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
 
-            const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
+            // VÁ LỖI TOÁN HỌC: Giờ hàm lấy thêm Tên Chiến Thuật
+            const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
                 (atr14/price)*100, localObi, dir
             );
@@ -244,7 +249,6 @@ export default function useMatrixScanner({
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
             
-            // VÁ LỖI 2: Đẩy biến execType động vào costDrag để tính chính xác phí ma sát ròng
             const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const rewardDiff = Math.abs(tp1 - entry);
@@ -254,6 +258,10 @@ export default function useMatrixScanner({
 
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
 
+            // VÁ LỖI ĐỒNG BỘ: Sử dụng 1D SMA200 cho Scanner giống HUD
+            const closesHTF = Array.isArray(klinesHTF) && klinesHTF.length >= 50 ? klinesHTF.map(d => parseFloat(d[4])) : closesMTF;
+            const htfSma200 = QuantMath.sma(closesHTF, 200);
+
             const obvArrayLocal = [];
             let currentObvLocal = 0;
             for (let j = 1; j < closes.length; j++) {
@@ -262,8 +270,10 @@ export default function useMatrixScanner({
                 obvArrayLocal.push(currentObvLocal);
             }
             const obvEma20Local = QuantMath.ema(obvArrayLocal, 20);
-            const isObvBearDivergenceLocal = (price > scan50_200.slowEmaCurrent) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
-            const isObvBullDivergenceLocal = (price < scan50_200.slowEmaCurrent) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
+            
+            // So sánh chuẩn xác với SMA200 khung 1D
+            const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
+            const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
             let w = { s1: 2.0, s2: 1.5, s3: 1.5, s4: 1.0, s5: 1.0, s6: 1.5, s7: 1.0, s8: 1.5 }; 
             if (l1 === 'Range') { w = { s1: 0, s2: 1.5, s3: 4.0, s4: 2.0, s5: 1.5, s6: 1.0, s7: 1.0, s8: 1.0 }; } 
@@ -279,7 +289,7 @@ export default function useMatrixScanner({
             const localVolSpike = closedVolume > (avgVolume20 * 2.5);
             const checkS6 = dir === 'LONG' ? (localTakerRatio > 1.05 && !isObvBearDivergenceLocal) : (localTakerRatio < 0.95 && !isObvBullDivergenceLocal);
             const checkS7 = dir === 'LONG' ? (realFunding < 0 && localVolSpike) : (realFunding > 0 && localVolSpike); 
-            const checkS8 = dir === 'LONG' ? (price > scan50_200.slowEmaCurrent && scan50_200.slowSlope > 0) : (price < scan50_200.slowEmaCurrent && scan50_200.slowSlope < 0); 
+            const checkS8 = dir === 'LONG' ? (price > htfSma200 && scan50_200.slowSlope > 0) : (price < htfSma200 && scan50_200.slowSlope < 0); 
 
             let embeddedScore = 0;
             if (checkS1) embeddedScore += w.s1;
@@ -339,7 +349,7 @@ export default function useMatrixScanner({
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 6.5;
+            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0; // Đồng bộ lên 7.0
 
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
             const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
@@ -372,13 +382,14 @@ export default function useMatrixScanner({
 
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
-            let overrideTag = '';
-            if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
-            else if (isSniperOverride) overrideTag = '🎯 SNIPER';
-            else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
-            else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
-            else if (isX5SniperOverride) overrideTag = '🎯 X5-SNIPER';
-            else if (isX10SqueezeOverride) overrideTag = '🚀 X10-SQUEEZE';
+            // Gắn Tên Chiến thuật vào Override Tag
+            let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
+            if (overrideTag === '') {
+                if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
+                else if (isSniperOverride) overrideTag = '🎯 SNIPER';
+                else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
+                else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
+            }
 
             scanResultsPool.push({
               symbol: targetSymbol,
@@ -417,7 +428,7 @@ export default function useMatrixScanner({
     runCrossAssetScan();
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
-  }, [systemHealth]); // Thêm systemHealth vào mảng phụ thuộc để tránh desync state
+  }, [systemHealth]); 
 
   useEffect(() => {
     if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) {

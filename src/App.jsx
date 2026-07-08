@@ -26,7 +26,7 @@ export default function AntiFragileTerminal() {
 
   const [tradeSetup, setTradeSetup] = useState({
     tradeType: 'FUTURES', direction: 'LONG', execution: 'LIMIT', 
-    riskPercent: 1.0, entry: 0, slTech: 0, tp1: 0, activeStrategy: "TIÊU CHUẨN" // <-- THÊM activeStrategy
+    riskPercent: 1.0, entry: 0, slTech: 0, tp1: 0, activeStrategy: "TIÊU CHUẨN" 
   });
 
   const [tradeLogs, setTradeLogs] = useState([]);
@@ -37,14 +37,12 @@ export default function AntiFragileTerminal() {
   const [geminiCooldown, setGeminiCooldown] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // TÍCH HỢP STATE GIÁM SÁT RATE LIMIT VÀ ĐỘ TRỄ VERCEL
   const [systemHealth, setSystemHealth] = useState({ weight: 0, maxWeight: 2400, latency: 0 });
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
   const { dynamicMinNotionals, dynamicPool, stepSizes, tickSizes } = useExchangeConfig();
 
-  // Truyền setSystemHealth vào các Hook gọi API
   const {
     loading, lastUpdated, systemError, liveCapital,
     binancePositions, leverageBrackets, tradeFees,
@@ -55,7 +53,7 @@ export default function AntiFragileTerminal() {
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // VÁ LỖI SCOPE: ĐÃ TRUYỀN systemHealth
+    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth
   });
 
   useEffect(() => {
@@ -117,14 +115,14 @@ export default function AntiFragileTerminal() {
     if (volScore < 20) l2 = "Compression"; else if (volScore > 85) l2 = "Extreme"; else if (volScore > 65) l2 = "Expansion"; else l2 = "Normal";
 
     let l3 = "Quiet";
-    const isVolSpike = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
+    const isVolSpikeHUD = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
     const isFundingSqueezeLongs = autoData.fundingSlope > 0.05 && l1 === "Range";
     const isFundingSqueezeShorts = autoData.fundingSlope < -0.05 && l1 === "Range";
     
     if (autoData.isBullishSFP) l3 = "Sweep Low (SFP)"; else if (autoData.isBearishSFP) l3 = "Sweep High (SFP)";
     else if (isFundingSqueezeLongs) l3 = "Longs Trapped (Squeeze Imminent)"; else if (isFundingSqueezeShorts) l3 = "Shorts Trapped (Squeeze Imminent)";
-    else if (isVolSpike && autoData.currentPrice > autoData.ema20.value && l2 === "Expansion") l3 = "Breakout";
-    else if (isVolSpike && autoData.currentPrice < autoData.ema20.value && l2 === "Expansion") l3 = "Breakdown"; else if (isVolSpike) l3 = "Stop Hunt / Climax";
+    else if (isVolSpikeHUD && autoData.currentPrice > autoData.ema20.value && l2 === "Expansion") l3 = "Breakout";
+    else if (isVolSpikeHUD && autoData.currentPrice < autoData.ema20.value && l2 === "Expansion") l3 = "Breakdown"; else if (isVolSpikeHUD) l3 = "Stop Hunt / Climax";
 
     let l4 = "Neutral";
     const priceUp = autoData.currentPrice > autoData.ema20.value;
@@ -135,7 +133,7 @@ export default function AntiFragileTerminal() {
     if (smartMoneyLong) l4 = "Smart Money Long Building"; else if (smartMoneyShort) l4 = "Smart Money Short Building";
     else if (priceUp && oiUp) l4 = "Retail Long Building"; else if (priceUp && oiDown) l4 = "Short Covering";
     else if (!priceUp && oiUp) l4 = "Retail Short Building"; else if (!priceUp && oiDown) l4 = "Long Liquidation";
-    if (isVolSpike && oiDown && autoData.atrRank > 90) l4 = "Capitulation / Blow-off"; 
+    if (isVolSpikeHUD && oiDown && autoData.atrRank > 90) l4 = "Capitulation / Blow-off"; 
 
     let l5 = "Weak";
     const isFakeBull = autoData.rsi > 60 && autoData.cmf < -0.05; 
@@ -165,13 +163,17 @@ export default function AntiFragileTerminal() {
     else if (l2 === 'Extreme') { w = { s1: 0, s2: 1.0, s3: 3.5, s4: 2.5, s5: 1.5, s6: 2.0, s7: 1.5, s8: 0.5 }; } 
     else if (l1.includes('Trend') && l2 === 'Expansion') { w = { s1: 3.0, s2: 2.5, s3: 0, s4: 1.0, s5: 1.0, s6: 2.5, s7: 1.0, s8: 2.0 }; }
 
+    const isVolSpikeHUD = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
+
     const checkS1 = tradeSetup.direction === (l1 === 'Trend Up' ? 'LONG' : 'SHORT');
     const checkS2 = tradeSetup.direction === 'LONG' ? autoData.cmf > 0.05 : autoData.cmf < -0.05;
     const checkS3 = tradeSetup.direction === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     const checkS4 = tradeSetup.direction === 'LONG' ? (l1.includes('Trend') ? autoData.rsi < 65 : autoData.rsi < 40) : (l1.includes('Trend') ? autoData.rsi > 35 : autoData.rsi > 60); 
     const checkS5 = tradeSetup.direction === 'LONG' ? apiMacro.longShortRatio < 1.0 : apiMacro.longShortRatio > 1.0; 
     const checkS6 = tradeSetup.direction === 'LONG' ? (apiMacro.takerBuySellRatio > 1.05 && !autoData.isObvBearDivergence) : (apiMacro.takerBuySellRatio < 0.95 && !autoData.isObvBullDivergence);
-    const checkS7 = tradeSetup.direction === 'LONG' ? (autoData.fundingRate < 0 && autoData.isOiSpiking) : (autoData.fundingRate > 0 && autoData.isOiSpiking);
+    
+    // VÁ LỖI ĐỒNG BỘ: Sửa isOiSpiking thành isVolSpikeHUD để khớp với Scanner
+    const checkS7 = tradeSetup.direction === 'LONG' ? (autoData.fundingRate < 0 && isVolSpikeHUD) : (autoData.fundingRate > 0 && isVolSpikeHUD);
     const checkS8 = tradeSetup.direction === 'LONG' ? (autoData.currentPrice > autoData.htfSma200 && autoData.ema200.slope > 0) : (autoData.currentPrice < autoData.htfSma200 && autoData.ema200.slope < 0);
 
     let score = 0; if (checkS1) score += w.s1; if (checkS2) score += w.s2; if (checkS3) score += w.s3; if (checkS4) score += w.s4; if (checkS5) score += w.s5; if (checkS6) score += w.s6; if (checkS7) score += w.s7; if (checkS8) score += w.s8;
@@ -179,7 +181,7 @@ export default function AntiFragileTerminal() {
     let synergyText = "";
     if (l2 === 'Compression' && checkS2 && checkS6) { score += 2.0; synergyText += "[💣 The Spring: CMF/Taker Accumulation in Compression] "; }
     if (l2 === 'Extreme' && checkS3 && checkS4) { score += 2.0; synergyText += "[🩸 Capitulation Sweep: SFP + Extreme RSI Divergence] "; }
-    if (autoData.isOiSpiking && !checkS5 && checkS6) { score += 1.5; synergyText += "[🪤 Smart Money Trap: Retail piling into liquidity wall] "; }
+    if (isVolSpikeHUD && !checkS5 && checkS6) { score += 1.5; synergyText += "[🪤 Smart Money Trap: Retail piling into liquidity wall] "; }
     if (tradeSetup.direction === 'LONG' && isAltcoinSeason) { score += 1.0; synergyText += "[🌊 Macro Tailwind: Altcoin Season] "; }
 
     const isTripleTrendBull = autoData.ema20.slope > 0 && autoData.ema50.slope > 0 && autoData.ema200.slope > 0;
@@ -315,9 +317,9 @@ export default function AntiFragileTerminal() {
     const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
     const isHighRROverride = isOnlyVolFailed && parseFloat(mathCore.theoreticalRR) >= 2.5 && score >= 7.0;
 
+    // VÁ LỖI ĐỒNG BỘ: Không bắt buộc isOiSpiking cho NanoCap nữa để khớp Scanner
     const isNanoCapSniper = 
       parseFloat(mathCore.theoreticalRR) >= 2.5 && 
-      autoData.isOiSpiking && 
       (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (tradeSetup.direction === 'LONG' && autoData.obi > 0.7) || (tradeSetup.direction === 'SHORT' && autoData.obi < 0.3)) &&
       !mathCore.hasMinNotionalError && score >= 7.0;
 
@@ -494,7 +496,6 @@ BẤT DI BẤT DỊCH:
     finally { setIsSyncing(false); }
   };
 
-  // VÁ LỖI LOGIC: Đã đẩy TP/SL Bất đối xứng vào hàm Auto Sync
   const handleMasterAuto = () => { 
     if (!autoData || !vectorRegime) return;
     let dir = vectorRegime.details.l1 === 'Trend Up' ? 'LONG' : 'SHORT'; 
@@ -516,7 +517,6 @@ BẤT DI BẤT DỊCH:
 
     const isSfp = dir === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     
-    // GỌI HÀM VÀ HỨNG THÊM strategyName
     const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
         autoData.bbwRank, 
         autoData.bbwSlope, 
@@ -540,10 +540,9 @@ BẤT DI BẤT DỊCH:
       entry: Number(suggestedEntry.toFixed(precision)), 
       slTech: Number(sl.toFixed(precision)), 
       tp1: Number(tp1.toFixed(precision)),
-      activeStrategy: strategyName // <-- BƠM TÊN CHIẾN THUẬT VÀO STATE
+      activeStrategy: strategyName 
     }));
     
-    // NÂNG CẤP TOAST THÔNG BÁO
     if (!(autoData.rsi >= 45 && autoData.rsi <= 55 && (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme'))) {
         showToast(`⚡ KÍCH HOẠT: ${strategyName} | SL: ${slMult.toFixed(2)} ATR | TP: ${tpMult.toFixed(1)} ATR`);
     }
@@ -554,7 +553,7 @@ BẤT DI BẤT DỊCH:
     setTradeSetup(prev => ({ 
         ...prev, direction: setup.direction, entry: setup.entry, 
         slTech: setup.slTech, tp1: setup.tp1, 
-        activeStrategy: setup.overrideTag || "TIÊU CHUẨN" // <-- NHẬN TAG TỪ SCANNER
+        activeStrategy: setup.overrideTag || "TIÊU CHUẨN" 
     }));
     showToast(`🚀 Đã nạp cấu trúc ${setup.symbol} [${setup.interval}] lên tổng đài chỉ huy!`);
   };
@@ -591,7 +590,6 @@ BẤT DI BẤT DỊCH:
         </div>
         
         <div className="flex items-center gap-3">
-          {/* TRACKER GIAO DIỆN HỆ THỐNG */}
           <div className={`px-2 py-1 rounded text-[9px] font-bold border flex flex-col items-center ${systemHealth.weight > 2000 ? 'bg-red-950/50 text-red-400 border-red-900 animate-pulse' : systemHealth.weight > 1200 ? 'bg-amber-950/50 text-amber-400 border-amber-900' : 'bg-slate-900/50 text-emerald-400 border-slate-700'}`}>
               <span>API LIMIT: {systemHealth.weight}/{systemHealth.maxWeight}</span>
               <span className={`text-[7px] ${systemHealth.latency > 3000 ? 'text-red-500 animate-pulse' : 'text-slate-500'}`}>VERCEL RTT: {systemHealth.latency}ms</span>
@@ -605,7 +603,7 @@ BẤT DI BẤT DỊCH:
             </select>
             <select className="bg-black text-blue-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={intervalTime} onChange={(e) => setIntervalTime(e.target.value)}>
               <option value="5m">M5 (Scalp)</option><option value="15m">M15 (Day)</option><option value="1h">H1 (Swing)</option>
-              <option value="4h">H4 (Macro)</option><option value="1d">D1 (Trend)</option><option value="1w">W1 (Investment)</option>
+              <option value="4h">H4 (Macro)</option><option value="1d">D1 (Trend)</option>
             </select>
             <div className="px-3 border-l border-slate-700/50">
               {loading ? <Loader2 className="w-4 h-4 animate-spin text-slate-500"/> : <Activity className="w-4 h-4 text-emerald-500"/>}

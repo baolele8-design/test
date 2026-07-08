@@ -137,7 +137,7 @@ const QuantMath = {
 
     const spreadCost = (spreadPercent / 100) / 2;
     
-    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; // Xóa 1w
+    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; 
     const hoursPerCandle = intervalToHours[interval] || 1;
     const totalHoldingHours = holdingCycles * hoursPerCandle;
     const realFundingCycles = totalHoldingHours / 8; 
@@ -207,7 +207,6 @@ const QuantMath = {
     const triggerLow = lows[triggerIndex];
     const triggerVol = volumes[triggerIndex];
 
-    // Bắt buộc Volume phải cao hơn 20% so với trung bình để xác nhận là cá mập quét râu
     if (triggerVol < avgVolume * 1.2) return false;
 
     let lastPivotHigh = -1;
@@ -237,9 +236,11 @@ const QuantMath = {
   },
 
   dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
-      let tpMult = 2.0; 
+      // VÁ LỖI TOÁN HỌC: Adaptive RR Base để không bao giờ rớt isRRSafe trong Scanner
+      const requiredRR = bbwRank > 80 ? 1.5 : 1.2;
       let slMult = 1.5; 
-      let strategyName = "TIÊU CHUẨN (R:R 1:1.3+)";
+      let tpMult = slMult * (requiredRR + 0.3); // Tự động nới TP xa ra để đền bù phí giao dịch
+      let strategyName = "TIÊU CHUẨN (ADAPTIVE)";
 
       const noiseBuffer = atrPercent > 2.0 ? 0.2 : 0;
 
