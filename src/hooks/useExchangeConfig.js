@@ -53,7 +53,7 @@ export default function useExchangeConfig() {
     };
 
     fetchExchangeData();
-    const timer = setInterval(fetchExchangeData, 600000); // ĐÃ FIX: 10 phút cập nhật dòng tiền 1 lần
+    const timer = setInterval(fetchExchangeData, 300000); // ĐÃ FIX: 5 Phút cập nhật luân chuyển dòng tiền 1 lần
     return () => { isMounted = false; clearInterval(timer); };
   }, []);
 

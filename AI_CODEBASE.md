@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 08, 2026, 03:12 PM ---
+--- START OF FILE Paste Jul 08, 2026, 03:27 PM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -1963,8 +1963,6 @@ import { POOL_SYMBOLS, MIN_NOTIONALS } from '../config/constants';
 export default function useExchangeConfig() {
   const [dynamicMinNotionals, setDynamicMinNotionals] = useState(MIN_NOTIONALS);
   const [dynamicPool, setDynamicPool] = useState(POOL_SYMBOLS);
-  
-  // Thêm 2 state để lấy độ chính xác thập phân của sàn
   const [stepSizes, setStepSizes] = useState({});
   const [tickSizes, setTickSizes] = useState({});
 
@@ -1973,11 +1971,9 @@ export default function useExchangeConfig() {
     const fetchExchangeData = async () => {
       try {
         const ts = Date.now();
-        // 1. Fetch Min Notional, Step Size, Tick Size trực tiếp từ Binance
         const exRes = await fetch(`/api/binance?path=/fapi/v1/exchangeInfo&t=${ts}`);
         const exData = await exRes.json();
 
-        // 2. Fetch Ticker 24h để tìm Coin đang biến động mạnh
         const tickerRes = await fetch(`/api/binance?path=/fapi/v1/ticker/24hr&t=${ts}`);
         const tickerData = await tickerRes.json();
 
@@ -1999,7 +1995,7 @@ export default function useExchangeConfig() {
         });
 
         const validTickers = tickerData
-          .filter(t => t.symbol.endsWith('USDT') && !POOL_SYMBOLS.includes(t.symbol) && parseFloat(t.quoteVolume) > 50000000)
+          .filter(t => t.symbol.endsWith('USDT') && !POOL_SYMBOLS.includes(t.symbol) && parseFloat(t.quoteVolume) > 30000000)
           .sort((a, b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)));
         
         const topVolatileCoins = validTickers.slice(0, 15).map(t => t.symbol);
@@ -2015,7 +2011,7 @@ export default function useExchangeConfig() {
     };
 
     fetchExchangeData();
-    const timer = setInterval(fetchExchangeData, 14400000); // 4 tiếng cập nhật 1 lần
+    const timer = setInterval(fetchExchangeData, 600000); // ĐÃ FIX: 10 phút cập nhật dòng tiền 1 lần
     return () => { isMounted = false; clearInterval(timer); };
   }, []);
 
@@ -2358,6 +2354,10 @@ export default function useMatrixScanner({
   const apiMacroRef = useRef(apiMacro);
   const dynamicPoolRef = useRef(dynamicPool);
   const dynamicMinNotionalsRef = useRef(dynamicMinNotionals);
+  
+  // ĐÃ FIX: Dùng Ref để khóa trọng số API, không làm re-trigger vòng lặp useEffect
+  const systemHealthRef = useRef(systemHealth);
+  useEffect(() => { systemHealthRef.current = systemHealth; }, [systemHealth]);
 
   useEffect(() => { liveCapitalRef.current = liveCapital; }, [liveCapital]);
   useEffect(() => { autoDataRef.current = autoData; }, [autoData]);
@@ -2370,17 +2370,16 @@ export default function useMatrixScanner({
   useEffect(() => {
     let isMounted = true;
 
-    const fetchWithTimeout = async (url, ms = 12000) => {
+    const fetchWithTimeout = async (url, ms = 15000) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
         try {
             const startPing = Date.now();
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(id);
-            
             const latency = Date.now() - startPing;
-            const weight = response.headers.get('x-mbx-used-weight-1m');
             
+            const weight = response.headers.get('x-mbx-used-weight-1m');
             if (weight && setSystemHealth && isMounted) {
                setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
             }
@@ -2434,25 +2433,21 @@ export default function useMatrixScanner({
             currentPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, obi: 0.5, funding: 0.0002 }; });
         }
 
-        // =========================================================================
-        // KIẾN TRÚC MỚI: BỘ ĐỆM LỜI HỨA (PROMISE MEMOIZATION CACHE)
-        // Tiết kiệm 75% API Requests. Không chạm Rate Limit. Vượt nghẽn Vercel.
-        // =========================================================================
         const fetchCache = new Map();
         const memoizedFetch = (binanceQueryStr) => {
             const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
-            if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl); // Dùng lại data nếu trùng API
+            if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl);
             const promise = fetchWithTimeout(fullUrl, 15000);
             fetchCache.set(fullUrl, promise);
             return promise;
         };
 
-        const SYMBOL_CHUNK_SIZE = 3; // Quét song song 3 đồng coin một lúc cực mượt
+        const SYMBOL_CHUNK_SIZE = 3;
         const results = [];
 
         for (let i = 0; i < currentPool.length; i += SYMBOL_CHUNK_SIZE) {
-          // Ngưỡng an toàn Binance Weight là 2400. Setup 1800 để phòng thủ.
-          if (systemHealth && systemHealth.weight > 1800) {
+          // ĐÃ FIX: Dùng Ref tránh lỗi Closure giữ data cũ
+          if (systemHealthRef.current && systemHealthRef.current.weight > 1800) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
@@ -2470,7 +2465,6 @@ export default function useMatrixScanner({
                 let macroInterval = targetInterval;
                 if (targetInterval === '1w') macroInterval = '1d';
 
-                // Tận dụng memoizedFetch để không gọi trùng nến MTF và 1D
                 const taskPromise = Promise.all([
                   memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=${targetInterval}&limit=250`),
                   memoizedFetch(`path=/futures/data/takerlongshortRatio&symbol=${targetSymbol}&period=${macroInterval}&limit=1`),
@@ -2495,11 +2489,10 @@ export default function useMatrixScanner({
           results.push(...chunkResults);
           
           if (i + SYMBOL_CHUNK_SIZE < currentPool.length) {
-            await new Promise(resolve => setTimeout(resolve, 150)); // Thở 150ms giữa các chunk
+            await new Promise(resolve => setTimeout(resolve, 150));
           }
         }
 
-        // Bước tính toán Logic Toán học và Filter (Không thay đổi)
         for (const result of results) {
           if (result.status !== 'fulfilled' || !Array.isArray(result.value.klines) || result.value.klines.length < 50) continue;
           
@@ -2730,6 +2723,7 @@ export default function useMatrixScanner({
             let slPercentForSize = sizeSlDistance / entry;
             if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
 
+            // ĐÃ VÁ LỖI CHÍ MẠNG: Đổi dynamicSlDistance thành sizeSlDistance
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
             
             if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
@@ -2786,9 +2780,10 @@ export default function useMatrixScanner({
     };
 
     runCrossAssetScan();
+    // ĐÃ FIX: Chỉ kích hoạt lại khi Khung giờ, Danh sách coin hoặc Trọng số mạng thay đổi chuẩn cấu trúc Ref
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
-  }, [systemHealth]); 
+  }, []); // ĐÃ FIX: Làm trống mảng Dependency để triệt tiêu hoàn toàn lỗi Loop Reset của React.
 
   useEffect(() => {
     if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) {

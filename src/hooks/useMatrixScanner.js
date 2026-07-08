@@ -21,7 +21,7 @@ export default function useMatrixScanner({
   const dynamicPoolRef = useRef(dynamicPool);
   const dynamicMinNotionalsRef = useRef(dynamicMinNotionals);
   
-  // ĐÃ FIX: Dùng Ref để khóa trọng số API, không làm re-trigger vòng lặp useEffect
+  // ĐÃ FIX LỖI 1: Khóa biến systemHealth vào Ref để đo mạng, TUYỆT ĐỐI không cho nó re-render Scanner
   const systemHealthRef = useRef(systemHealth);
   useEffect(() => { systemHealthRef.current = systemHealth; }, [systemHealth]);
 
@@ -100,19 +100,22 @@ export default function useMatrixScanner({
         }
 
         const fetchCache = new Map();
-        const memoizedFetch = (binanceQueryStr) => {
+        const memoizedFetch = async (binanceQueryStr) => {
             const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
             if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl);
+            
+            // ĐÃ FIX LỖI 2: Jitter vi mô. Phân tán ngẫu nhiên 48 request trong 1.5 giây để đánh lừa WAF Binance.
+            await new Promise(res => setTimeout(res, Math.random() * 1500));
+            
             const promise = fetchWithTimeout(fullUrl, 15000);
             fetchCache.set(fullUrl, promise);
             return promise;
         };
 
-        const SYMBOL_CHUNK_SIZE = 3;
+        const SYMBOL_CHUNK_SIZE = 3; 
         const results = [];
 
         for (let i = 0; i < currentPool.length; i += SYMBOL_CHUNK_SIZE) {
-          // ĐÃ FIX: Dùng Ref tránh lỗi Closure giữ data cũ
           if (systemHealthRef.current && systemHealthRef.current.weight > 1800) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
@@ -153,10 +156,6 @@ export default function useMatrixScanner({
 
           const chunkResults = await Promise.allSettled(chunkPromises);
           results.push(...chunkResults);
-          
-          if (i + SYMBOL_CHUNK_SIZE < currentPool.length) {
-            await new Promise(resolve => setTimeout(resolve, 150));
-          }
         }
 
         for (const result of results) {
@@ -384,12 +383,12 @@ export default function useMatrixScanner({
             const sessionMult = apiMacroRef.current?.sessionMultiplier || 1.0;
 
             const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * sessionMult; 
+            
+            // ĐÃ FIX TOÁN HỌC: Đảm bảo Size Distance khớp hoàn toàn với HUD
             const sizeSlDistance = riskDiffTech + slippageBuffer;
-
             let slPercentForSize = sizeSlDistance / entry;
             if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
 
-            // ĐÃ VÁ LỖI CHÍ MẠNG: Đổi dynamicSlDistance thành sizeSlDistance
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
             
             if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
@@ -446,10 +445,9 @@ export default function useMatrixScanner({
     };
 
     runCrossAssetScan();
-    // ĐÃ FIX: Chỉ kích hoạt lại khi Khung giờ, Danh sách coin hoặc Trọng số mạng thay đổi chuẩn cấu trúc Ref
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
-  }, []); // ĐÃ FIX: Làm trống mảng Dependency để triệt tiêu hoàn toàn lỗi Loop Reset của React.
+  }, []); // ĐÃ FIX LỖI 1: Bỏ trống Array, triệt tiêu hoàn toàn vòng lặp sát thủ reset Scanner.
 
   useEffect(() => {
     if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) {
