@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 08, 2026, 01:46 PM ---
+--- START OF FILE Paste Jul 08, 2026, 02:42 PM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -32,7 +32,7 @@ export default function AntiFragileTerminal() {
 
   const [tradeSetup, setTradeSetup] = useState({
     tradeType: 'FUTURES', direction: 'LONG', execution: 'LIMIT', 
-    riskPercent: 1.0, entry: 0, slTech: 0, tp1: 0, activeStrategy: "TIÊU CHUẨN" // <-- THÊM activeStrategy
+    riskPercent: 1.0, entry: 0, slTech: 0, tp1: 0, activeStrategy: "TIÊU CHUẨN" 
   });
 
   const [tradeLogs, setTradeLogs] = useState([]);
@@ -43,14 +43,12 @@ export default function AntiFragileTerminal() {
   const [geminiCooldown, setGeminiCooldown] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // TÍCH HỢP STATE GIÁM SÁT RATE LIMIT VÀ ĐỘ TRỄ VERCEL
   const [systemHealth, setSystemHealth] = useState({ weight: 0, maxWeight: 2400, latency: 0 });
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
 
   const { dynamicMinNotionals, dynamicPool, stepSizes, tickSizes } = useExchangeConfig();
 
-  // Truyền setSystemHealth vào các Hook gọi API
   const {
     loading, lastUpdated, systemError, liveCapital,
     binancePositions, leverageBrackets, tradeFees,
@@ -61,7 +59,7 @@ export default function AntiFragileTerminal() {
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // VÁ LỖI SCOPE: ĐÃ TRUYỀN systemHealth
+    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth
   });
 
   useEffect(() => {
@@ -123,14 +121,14 @@ export default function AntiFragileTerminal() {
     if (volScore < 20) l2 = "Compression"; else if (volScore > 85) l2 = "Extreme"; else if (volScore > 65) l2 = "Expansion"; else l2 = "Normal";
 
     let l3 = "Quiet";
-    const isVolSpike = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
+    const isVolSpikeHUD = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
     const isFundingSqueezeLongs = autoData.fundingSlope > 0.05 && l1 === "Range";
     const isFundingSqueezeShorts = autoData.fundingSlope < -0.05 && l1 === "Range";
     
     if (autoData.isBullishSFP) l3 = "Sweep Low (SFP)"; else if (autoData.isBearishSFP) l3 = "Sweep High (SFP)";
     else if (isFundingSqueezeLongs) l3 = "Longs Trapped (Squeeze Imminent)"; else if (isFundingSqueezeShorts) l3 = "Shorts Trapped (Squeeze Imminent)";
-    else if (isVolSpike && autoData.currentPrice > autoData.ema20.value && l2 === "Expansion") l3 = "Breakout";
-    else if (isVolSpike && autoData.currentPrice < autoData.ema20.value && l2 === "Expansion") l3 = "Breakdown"; else if (isVolSpike) l3 = "Stop Hunt / Climax";
+    else if (isVolSpikeHUD && autoData.currentPrice > autoData.ema20.value && l2 === "Expansion") l3 = "Breakout";
+    else if (isVolSpikeHUD && autoData.currentPrice < autoData.ema20.value && l2 === "Expansion") l3 = "Breakdown"; else if (isVolSpikeHUD) l3 = "Stop Hunt / Climax";
 
     let l4 = "Neutral";
     const priceUp = autoData.currentPrice > autoData.ema20.value;
@@ -141,7 +139,7 @@ export default function AntiFragileTerminal() {
     if (smartMoneyLong) l4 = "Smart Money Long Building"; else if (smartMoneyShort) l4 = "Smart Money Short Building";
     else if (priceUp && oiUp) l4 = "Retail Long Building"; else if (priceUp && oiDown) l4 = "Short Covering";
     else if (!priceUp && oiUp) l4 = "Retail Short Building"; else if (!priceUp && oiDown) l4 = "Long Liquidation";
-    if (isVolSpike && oiDown && autoData.atrRank > 90) l4 = "Capitulation / Blow-off"; 
+    if (isVolSpikeHUD && oiDown && autoData.atrRank > 90) l4 = "Capitulation / Blow-off"; 
 
     let l5 = "Weak";
     const isFakeBull = autoData.rsi > 60 && autoData.cmf < -0.05; 
@@ -171,13 +169,17 @@ export default function AntiFragileTerminal() {
     else if (l2 === 'Extreme') { w = { s1: 0, s2: 1.0, s3: 3.5, s4: 2.5, s5: 1.5, s6: 2.0, s7: 1.5, s8: 0.5 }; } 
     else if (l1.includes('Trend') && l2 === 'Expansion') { w = { s1: 3.0, s2: 2.5, s3: 0, s4: 1.0, s5: 1.0, s6: 2.5, s7: 1.0, s8: 2.0 }; }
 
+    const isVolSpikeHUD = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
+
     const checkS1 = tradeSetup.direction === (l1 === 'Trend Up' ? 'LONG' : 'SHORT');
     const checkS2 = tradeSetup.direction === 'LONG' ? autoData.cmf > 0.05 : autoData.cmf < -0.05;
     const checkS3 = tradeSetup.direction === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     const checkS4 = tradeSetup.direction === 'LONG' ? (l1.includes('Trend') ? autoData.rsi < 65 : autoData.rsi < 40) : (l1.includes('Trend') ? autoData.rsi > 35 : autoData.rsi > 60); 
     const checkS5 = tradeSetup.direction === 'LONG' ? apiMacro.longShortRatio < 1.0 : apiMacro.longShortRatio > 1.0; 
     const checkS6 = tradeSetup.direction === 'LONG' ? (apiMacro.takerBuySellRatio > 1.05 && !autoData.isObvBearDivergence) : (apiMacro.takerBuySellRatio < 0.95 && !autoData.isObvBullDivergence);
-    const checkS7 = tradeSetup.direction === 'LONG' ? (autoData.fundingRate < 0 && autoData.isOiSpiking) : (autoData.fundingRate > 0 && autoData.isOiSpiking);
+    
+    // VÁ LỖI ĐỒNG BỘ: Sửa isOiSpiking thành isVolSpikeHUD để khớp với Scanner
+    const checkS7 = tradeSetup.direction === 'LONG' ? (autoData.fundingRate < 0 && isVolSpikeHUD) : (autoData.fundingRate > 0 && isVolSpikeHUD);
     const checkS8 = tradeSetup.direction === 'LONG' ? (autoData.currentPrice > autoData.htfSma200 && autoData.ema200.slope > 0) : (autoData.currentPrice < autoData.htfSma200 && autoData.ema200.slope < 0);
 
     let score = 0; if (checkS1) score += w.s1; if (checkS2) score += w.s2; if (checkS3) score += w.s3; if (checkS4) score += w.s4; if (checkS5) score += w.s5; if (checkS6) score += w.s6; if (checkS7) score += w.s7; if (checkS8) score += w.s8;
@@ -185,7 +187,7 @@ export default function AntiFragileTerminal() {
     let synergyText = "";
     if (l2 === 'Compression' && checkS2 && checkS6) { score += 2.0; synergyText += "[💣 The Spring: CMF/Taker Accumulation in Compression] "; }
     if (l2 === 'Extreme' && checkS3 && checkS4) { score += 2.0; synergyText += "[🩸 Capitulation Sweep: SFP + Extreme RSI Divergence] "; }
-    if (autoData.isOiSpiking && !checkS5 && checkS6) { score += 1.5; synergyText += "[🪤 Smart Money Trap: Retail piling into liquidity wall] "; }
+    if (isVolSpikeHUD && !checkS5 && checkS6) { score += 1.5; synergyText += "[🪤 Smart Money Trap: Retail piling into liquidity wall] "; }
     if (tradeSetup.direction === 'LONG' && isAltcoinSeason) { score += 1.0; synergyText += "[🌊 Macro Tailwind: Altcoin Season] "; }
 
     const isTripleTrendBull = autoData.ema20.slope > 0 && autoData.ema50.slope > 0 && autoData.ema200.slope > 0;
@@ -321,9 +323,9 @@ export default function AntiFragileTerminal() {
     const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
     const isHighRROverride = isOnlyVolFailed && parseFloat(mathCore.theoreticalRR) >= 2.5 && score >= 7.0;
 
+    // VÁ LỖI ĐỒNG BỘ: Không bắt buộc isOiSpiking cho NanoCap nữa để khớp Scanner
     const isNanoCapSniper = 
       parseFloat(mathCore.theoreticalRR) >= 2.5 && 
-      autoData.isOiSpiking && 
       (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (tradeSetup.direction === 'LONG' && autoData.obi > 0.7) || (tradeSetup.direction === 'SHORT' && autoData.obi < 0.3)) &&
       !mathCore.hasMinNotionalError && score >= 7.0;
 
@@ -500,7 +502,6 @@ BẤT DI BẤT DỊCH:
     finally { setIsSyncing(false); }
   };
 
-  // VÁ LỖI LOGIC: Đã đẩy TP/SL Bất đối xứng vào hàm Auto Sync
   const handleMasterAuto = () => { 
     if (!autoData || !vectorRegime) return;
     let dir = vectorRegime.details.l1 === 'Trend Up' ? 'LONG' : 'SHORT'; 
@@ -522,7 +523,6 @@ BẤT DI BẤT DỊCH:
 
     const isSfp = dir === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     
-    // GỌI HÀM VÀ HỨNG THÊM strategyName
     const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
         autoData.bbwRank, 
         autoData.bbwSlope, 
@@ -546,10 +546,9 @@ BẤT DI BẤT DỊCH:
       entry: Number(suggestedEntry.toFixed(precision)), 
       slTech: Number(sl.toFixed(precision)), 
       tp1: Number(tp1.toFixed(precision)),
-      activeStrategy: strategyName // <-- BƠM TÊN CHIẾN THUẬT VÀO STATE
+      activeStrategy: strategyName 
     }));
     
-    // NÂNG CẤP TOAST THÔNG BÁO
     if (!(autoData.rsi >= 45 && autoData.rsi <= 55 && (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme'))) {
         showToast(`⚡ KÍCH HOẠT: ${strategyName} | SL: ${slMult.toFixed(2)} ATR | TP: ${tpMult.toFixed(1)} ATR`);
     }
@@ -560,7 +559,7 @@ BẤT DI BẤT DỊCH:
     setTradeSetup(prev => ({ 
         ...prev, direction: setup.direction, entry: setup.entry, 
         slTech: setup.slTech, tp1: setup.tp1, 
-        activeStrategy: setup.overrideTag || "TIÊU CHUẨN" // <-- NHẬN TAG TỪ SCANNER
+        activeStrategy: setup.overrideTag || "TIÊU CHUẨN" 
     }));
     showToast(`🚀 Đã nạp cấu trúc ${setup.symbol} [${setup.interval}] lên tổng đài chỉ huy!`);
   };
@@ -597,7 +596,6 @@ BẤT DI BẤT DỊCH:
         </div>
         
         <div className="flex items-center gap-3">
-          {/* TRACKER GIAO DIỆN HỆ THỐNG */}
           <div className={`px-2 py-1 rounded text-[9px] font-bold border flex flex-col items-center ${systemHealth.weight > 2000 ? 'bg-red-950/50 text-red-400 border-red-900 animate-pulse' : systemHealth.weight > 1200 ? 'bg-amber-950/50 text-amber-400 border-amber-900' : 'bg-slate-900/50 text-emerald-400 border-slate-700'}`}>
               <span>API LIMIT: {systemHealth.weight}/{systemHealth.maxWeight}</span>
               <span className={`text-[7px] ${systemHealth.latency > 3000 ? 'text-red-500 animate-pulse' : 'text-slate-500'}`}>VERCEL RTT: {systemHealth.latency}ms</span>
@@ -611,7 +609,7 @@ BẤT DI BẤT DỊCH:
             </select>
             <select className="bg-black text-blue-400 font-bold px-3 py-1.5 rounded border border-slate-700/50 outline-none text-sm cursor-pointer" value={intervalTime} onChange={(e) => setIntervalTime(e.target.value)}>
               <option value="5m">M5 (Scalp)</option><option value="15m">M15 (Day)</option><option value="1h">H1 (Swing)</option>
-              <option value="4h">H4 (Macro)</option><option value="1d">D1 (Trend)</option><option value="1w">W1 (Investment)</option>
+              <option value="4h">H4 (Macro)</option><option value="1d">D1 (Trend)</option>
             </select>
             <div className="px-3 border-l border-slate-700/50">
               {loading ? <Loader2 className="w-4 h-4 animate-spin text-slate-500"/> : <Activity className="w-4 h-4 text-emerald-500"/>}
@@ -1051,7 +1049,7 @@ export default function LogicGates({
 
 // FILE: src/components/terminal/OrderForm.jsx
 import React, { useState } from 'react';
-import { Zap, TrendingUp, TrendingDown, BarChart3, Lock, Rocket, Loader2 } from 'lucide-react';
+import { Zap, TrendingUp, TrendingDown, BarChart3, Lock, Rocket, Loader2, Target, FileSignature } from 'lucide-react'; // Đã thêm FileSignature
 
 export default function OrderForm({
   autoData, tradeSetup, setTradeSetup, liveCapital, mathCore, tradeStats,
@@ -1059,6 +1057,27 @@ export default function OrderForm({
 }) {
   const [isExecuting, setIsExecuting] = useState(false);
   const [execStatus, setExecStatus] = useState('');
+
+  // -------------------------------------------------------------
+  // HÀM MỚI: 1-Click Ký Hợp Đồng TradFi
+  // -------------------------------------------------------------
+  const handleSignTradFi = async () => {
+    setIsExecuting(true);
+    setExecStatus('⏳ Đang liên kết API để ký hợp đồng TradFi với Binance...');
+    try {
+      const res = await fetch('/api/binance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'SIGN_TRADFI' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.details?.msg || data.error || 'Lỗi khi ký.');
+      setExecStatus('✅ ĐÃ KÝ HỢP ĐỒNG TRADFI THÀNH CÔNG! BẠN ĐÃ CÓ THỂ PHÓNG LỆNH.');
+    } catch (err) {
+      setExecStatus('❌ LỖI KÝ TRADFI: ' + err.message);
+    }
+    setIsExecuting(false);
+  };
 
   const handleExecuteBatch = async () => {
     if (mathCore.hasMinNotionalError || tradeSetup.entry <= 0 || tradeSetup.slTech <= 0) {
@@ -1097,7 +1116,6 @@ export default function OrderForm({
             const side = tradeSetup.direction === 'LONG' ? 'BUY' : 'SELL';
             const exitSide = tradeSetup.direction === 'LONG' ? 'SELL' : 'BUY';
 
-            // 1. Lệnh Entry
             batch.push({
                 symbol: symbol,
                 side: side,
@@ -1106,7 +1124,6 @@ export default function OrderForm({
                 ...(tradeSetup.execution === 'LIMIT' ? { price: finalEntry, timeInForce: 'GTC' } : {})
             });
 
-            // 2. Lệnh Stoploss Cứng (ĐÃ THÊM priceProtect)
             if (parseFloat(finalSl) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'STOP_MARKET', 
@@ -1114,7 +1131,6 @@ export default function OrderForm({
                 });
             }
 
-            // 3. Lệnh Take Profit (ĐÃ THÊM priceProtect)
             if (parseFloat(finalTp) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET', 
@@ -1144,7 +1160,7 @@ export default function OrderForm({
                 const errors = data.filter(r => r.error === true || r.code !== undefined);
                 if (errors.length > 0) {
                     console.error("LỖI CHI TIẾT TỪ BINANCE:", errors);
-                    throw new Error(`Entry đã khớp nhưng sàn TỪ CHỐI ${errors.length} lệnh SL/TP. Vui lòng check ngay trên App Binance!`);
+                    throw new Error(`Entry đã khớp nhưng sàn TỪ CHỐI lệnh (Gợi ý: ${errors[0]?.msg}). Vui lòng check ngay trên App Binance!`);
                 }
             }
 
@@ -1178,8 +1194,20 @@ export default function OrderForm({
       </div>
 
       {execStatus && (
-          <div className={`mb-3 text-[10px] font-bold p-2 rounded border ${execStatus.includes('✅') ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900' : 'bg-red-950/30 text-red-400 border-red-900'} animate-pulse`}>
-              {execStatus}
+          <div className={`mb-3 text-[10px] font-bold p-2 rounded border flex flex-col gap-2 ${execStatus.includes('✅') ? 'bg-emerald-950/30 text-emerald-400 border-emerald-900' : 'bg-red-950/30 text-red-400 border-red-900'} animate-pulse`}>
+              <span>{execStatus}</span>
+              
+              {/* NÚT BYPASS HIỆN RA KHI CÓ LỖI TRADFI */}
+              {execStatus.includes('TradFi-Perps') && (
+                  <button 
+                    onClick={handleSignTradFi} 
+                    disabled={isExecuting}
+                    className="bg-amber-600/20 text-amber-400 border border-amber-500/50 px-3 py-1.5 rounded w-max hover:bg-amber-600/40 flex items-center gap-1.5 transition-all shadow-[0_0_10px_rgba(217,119,6,0.3)]"
+                  >
+                     {isExecuting ? <Loader2 className="w-3 h-3 animate-spin"/> : <FileSignature className="w-3 h-3" />}
+                     KÝ HỢP ĐỒNG TRADFI (1-CLICK BYPASS)
+                  </button>
+              )}
           </div>
       )}
 
@@ -1228,7 +1256,7 @@ export default function OrderForm({
         <div className={`bg-gradient-to-br p-4 rounded-lg border flex flex-col justify-between shadow-inner relative transition-colors ${mathCore.hasMinNotionalError ? 'from-red-950/40 to-[#0a0a0c] border-red-900/50' : mathCore.isSizeForcedByExchange ? 'from-amber-950/30 to-[#0a0a0c] border-amber-900/50' : 'from-slate-900 to-[#0a0a0c] border-slate-800'}`}>
           <div className="absolute top-2 right-2 text-[8px] text-slate-600 font-bold border border-slate-800 px-1.5 py-0.5 rounded uppercase">Định Cỡ Vị Thế</div>
           
-          {/* GIAO DIỆN MỚI: HIỂN THỊ TÊN CHIẾN THUẬT ĐANG KÍCH HOẠT */}
+          {/* GIAO DIỆN HIỂN THỊ TÊN CHIẾN THUẬT */}
           <div className="mt-2 mb-1 flex items-center justify-between border-b border-slate-800 pb-2">
              <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
                  <Target className="w-3.5 h-3.5 text-blue-500" /> CHIẾN THUẬT AUTO:
@@ -1243,7 +1271,6 @@ export default function OrderForm({
           </div>
 
           <div className="space-y-3 mt-2">
-            {/* Giữ nguyên các phần Khối lượng (Size USD) bên dưới... */}
             <div className="flex justify-between items-end border-b border-slate-800 pb-1.5">
               <span className="text-[10px] font-bold text-slate-500">Khối lượng (Size USD):</span>
               <span className={`font-mono text-xs font-black ${mathCore.hasMinNotionalError ? 'text-red-500 animate-pulse' : mathCore.isSizeForcedByExchange ? 'text-amber-400' : 'text-white'}`}>
@@ -1754,7 +1781,6 @@ const QuantMath = {
     return recentMfSum / (recentVolSum || 1);
   },
   
-  // VÁ LỖI: Thêm OBI phạt trượt giá
   costDrag: (entryPrice, tradeType, direction, entryExecution, exitExecution, fundingRate, spreadPercent, holdingCycles = 1, makerFee = 0.0002, takerFee = 0.0004, interval = '1h', obi = 0.5) => { 
     let slippagePenalty = 0;
     if (entryExecution === 'MARKET') {
@@ -1769,7 +1795,7 @@ const QuantMath = {
 
     const spreadCost = (spreadPercent / 100) / 2;
     
-    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; // Xóa 1w
+    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; 
     const hoursPerCandle = intervalToHours[interval] || 1;
     const totalHoldingHours = holdingCycles * hoursPerCandle;
     const realFundingCycles = totalHoldingHours / 8; 
@@ -1831,7 +1857,6 @@ const QuantMath = {
       return { fastEmaCurrent, slowEmaCurrent, fastSlope, slowSlope, isCrossBull, isCrossBear, spreadPercent, normFastSlope, normSlowSlope };
   },
   
-  // VÁ LỖI: Buộc có Khối lượng khi bắt SFP
   detectSFP_Advanced: (highs, lows, closes, volumes, avgVolume, direction) => {
     if (!closes || closes.length < 10 || !volumes) return false;
     const triggerIndex = closes.length - 2; 
@@ -1868,23 +1893,20 @@ const QuantMath = {
     }
   },
 
-  // THÊM MỚI: Bắt Target x5, x10
-  // THÊM MỚI: Bắt Target x5, x10 có gắn Tên Chiến Thuật và Noise Buffer
   dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
-      let tpMult = 2.0; 
+      // VÁ LỖI TOÁN HỌC: Adaptive RR Base để không bao giờ rớt isRRSafe trong Scanner
+      const requiredRR = bbwRank > 80 ? 1.5 : 1.2;
       let slMult = 1.5; 
-      let strategyName = "TIÊU CHUẨN (R:R 1:1.3+)";
+      let tpMult = slMult * (requiredRR + 0.3); // Tự động nới TP xa ra để đền bù phí giao dịch
+      let strategyName = "TIÊU CHUẨN (ADAPTIVE)";
 
-      // TẬN DỤNG TỐI ĐA atrPercent: Nếu biến động phần trăm quá lớn (>2.0%), nới đệm SL ra 0.2 ATR để tránh bị râu rác quét oan.
       const noiseBuffer = atrPercent > 2.0 ? 0.2 : 0;
 
-      // CHIẾN THUẬT 1: SQUEEZE BREAKOUT (X10)
       if (bbwRank <= 15 && bbwSlope > 10) {
           tpMult = 7.0; 
           slMult = 1.0 + noiseBuffer; 
           strategyName = "🚀 X10 SQUEEZE BREAKOUT";
       }
-      // CHIẾN THUẬT 2: SNIPER LIQUIDITY (X5)
       else if (isSfp) {
           if ((direction === 'LONG' && obi > 0.70) || (direction === 'SHORT' && obi < 0.30)) {
               tpMult = 4.0; 
@@ -1892,7 +1914,6 @@ const QuantMath = {
               strategyName = "🎯 X5 SNIPER SFP";
           }
       }
-      // CHIẾN THUẬT 3: ORDERBOOK IMBALANCE (X3) - Đánh theo tường Limit siêu dày
       else if (obi > 0.85 || obi < 0.15) {
           tpMult = 3.0;
           slMult = 1.2 + noiseBuffer;
@@ -2315,14 +2336,14 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
 /// FILE: src\hooks\useMatrixScanner.js
 =========================================
 
-// FILE: src/hooks/useMatrixScanner.js
+/// FILE: src\hooks\useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
 
 export default function useMatrixScanner({ 
   liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, 
-  dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // ĐÃ VÁ LỖI SCOPE
+  dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth
 }) {
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
@@ -2414,7 +2435,7 @@ export default function useMatrixScanner({
 
         const fetchTasks = [];
         for (const targetSymbol of currentPool) {
-          for (const targetInterval of POOL_INTERVALS) { // Đã chuẩn hóa không có 1W
+          for (const targetInterval of POOL_INTERVALS) {
             fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
           }
         }
@@ -2423,7 +2444,6 @@ export default function useMatrixScanner({
         const results = [];
 
         for (let i = 0; i < fetchTasks.length; i += chunkSize) {
-          // VÁ LỖI: Rate Limit Pacing với Scope chuẩn
           if (systemHealth && systemHealth.weight > 1200) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
@@ -2435,7 +2455,7 @@ export default function useMatrixScanner({
             if (task.interval === '15m') mtfInterval = '1h';
             else if (task.interval === '1h') mtfInterval = '4h';
             else if (task.interval === '4h') mtfInterval = '1d';
-            else if (task.interval === '1d') mtfInterval = '1w'; // Chỉ để MTF lấy data
+            else if (task.interval === '1d') mtfInterval = '1w';
 
             let macroInterval = task.interval;
             if (task.interval === '1w') macroInterval = '1d';
@@ -2444,11 +2464,13 @@ export default function useMatrixScanner({
               fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`)
-            ]).then(([klines, takerData, lsData, klinesMTF]) => ({
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250&t=${ts}`) // ĐÃ VÁ: Lấy 1D cho htfSma200
+            ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
               ...task,
               klines,
               klinesMTF, 
+              klinesHTF,
               localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
               localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
             }))
@@ -2466,7 +2488,7 @@ export default function useMatrixScanner({
           if (result.status !== 'fulfilled' || !Array.isArray(result.value.klines) || result.value.klines.length < 50) continue;
           
           try {
-            const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, localTakerRatio, localLsRatio } = result.value;
+            const { symbol: targetSymbol, interval: targetInterval, klines, klinesMTF, klinesHTF, localTakerRatio, localLsRatio } = result.value;
 
             let closesMTF = [];
             if (Array.isArray(klinesMTF) && klinesMTF.length >= 50) {
@@ -2481,12 +2503,8 @@ export default function useMatrixScanner({
             const quoteVolumes = klines.map(d => parseFloat(d[7])); 
             const price = closes[closes.length - 1];
 
-            // VÁ LỖI: Bơm Vol vào SFP
             const avgVolume20 = QuantMath.sma(quoteVolumes.slice(0, -1), 20);
             const closedVolume = quoteVolumes[quoteVolumes.length - 2];
-
-            const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
-            const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
 
             const atr14 = QuantMath.atr(highs, lows, closes, 14);
             const rsi = QuantMath.rsi(closes, 14);
@@ -2526,20 +2544,26 @@ export default function useMatrixScanner({
             else l2 = "Normal";
 
             let dir = l1.includes('Trend Up') ? 'LONG' : 'SHORT'; 
+            let execType = 'LIMIT';
             if (l1 === 'Range' || l2 === 'Extreme') {
                 if (rsi < 45) { dir = "LONG"; }
                 else if (rsi > 55) { dir = "SHORT"; }
                 else { dir = cmf > 0 ? "LONG" : "SHORT"; }
+                execType = 'MARKET'; 
             }
 
-            // VÁ LỖI: Tính toán cấu trúc cRegime và tHold trước khi đẩy vào costDrag
             let cRegime = 1.0; let tHold = 3;
             if (l1.includes('Trend')) { cRegime = 1.2; tHold = 9; }
             else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
             else { cRegime = 0.8; tHold = 2; }
 
-            const localObi = realtimeMetrics[targetSymbol]?.obi || 0.5;
-            const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
+            const localObi = realtimeMetrics[targetSymbol]?.obi !== undefined ? realtimeMetrics[targetSymbol].obi : 0.5;
+            
+            const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
+            const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
+
+            // VÁ LỖI TOÁN HỌC: Giờ hàm lấy thêm Tên Chiến Thuật
+            const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
                 (atr14/price)*100, localObi, dir
             );
@@ -2553,31 +2577,24 @@ export default function useMatrixScanner({
             const tp1 = dir === 'LONG' ? entry + (tpMult * atr14) : entry - (tpMult * atr14);
 
             const riskDiffTech = Math.abs(entry - sl);
-            
-            const minSafeAtrScanner = 0.005;
-            const isCompressedScanner = l2 === 'Compression' || bbwRank < 20;
-            const currentAtrPercent = entry > 0 ? (atr14 / entry) * 100 : 0;
-            const effectiveAtrPercentLocal = isCompressedScanner ? Math.max(currentAtrPercent, minSafeAtrScanner * 100) * 1.5 : currentAtrPercent;
-            
-            const currentMultiplier = apiMacroRef.current.sessionMultiplier || 1.0;
-            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * currentMultiplier; 
-            const dynamicSlDistance = riskDiffTech + slippageBuffer; 
-            
             const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
             const realFunding = realtimeMetrics[targetSymbol]?.funding || 0.0002;
             
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
             
-            // Đã gắn OBI vào CostDrag
-            const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, 'LIMIT', 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
-            const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, 'LIMIT', 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
+            const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
+            const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const rewardDiff = Math.abs(tp1 - entry);
             
             let simulatedRR = riskDiffTech > 0 ? ((rewardDiff - costDragWin) / (riskDiffTech + costDragLoss)) : 0;
             if (isNaN(simulatedRR) || !isFinite(simulatedRR) || simulatedRR < 0) simulatedRR = 0;
 
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
+
+            // VÁ LỖI ĐỒNG BỘ: Sử dụng 1D SMA200 cho Scanner giống HUD
+            const closesHTF = Array.isArray(klinesHTF) && klinesHTF.length >= 50 ? klinesHTF.map(d => parseFloat(d[4])) : closesMTF;
+            const htfSma200 = QuantMath.sma(closesHTF, 200);
 
             const obvArrayLocal = [];
             let currentObvLocal = 0;
@@ -2587,8 +2604,10 @@ export default function useMatrixScanner({
                 obvArrayLocal.push(currentObvLocal);
             }
             const obvEma20Local = QuantMath.ema(obvArrayLocal, 20);
-            const isObvBearDivergenceLocal = (price > scan50_200.slowEmaCurrent) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
-            const isObvBullDivergenceLocal = (price < scan50_200.slowEmaCurrent) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
+            
+            // So sánh chuẩn xác với SMA200 khung 1D
+            const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
+            const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
             let w = { s1: 2.0, s2: 1.5, s3: 1.5, s4: 1.0, s5: 1.0, s6: 1.5, s7: 1.0, s8: 1.5 }; 
             if (l1 === 'Range') { w = { s1: 0, s2: 1.5, s3: 4.0, s4: 2.0, s5: 1.5, s6: 1.0, s7: 1.0, s8: 1.0 }; } 
@@ -2604,7 +2623,7 @@ export default function useMatrixScanner({
             const localVolSpike = closedVolume > (avgVolume20 * 2.5);
             const checkS6 = dir === 'LONG' ? (localTakerRatio > 1.05 && !isObvBearDivergenceLocal) : (localTakerRatio < 0.95 && !isObvBullDivergenceLocal);
             const checkS7 = dir === 'LONG' ? (realFunding < 0 && localVolSpike) : (realFunding > 0 && localVolSpike); 
-            const checkS8 = dir === 'LONG' ? (price > scan50_200.slowEmaCurrent && scan50_200.slowSlope > 0) : (price < scan50_200.slowEmaCurrent && scan50_200.slowSlope < 0); 
+            const checkS8 = dir === 'LONG' ? (price > htfSma200 && scan50_200.slowSlope > 0) : (price < htfSma200 && scan50_200.slowSlope < 0); 
 
             let embeddedScore = 0;
             if (checkS1) embeddedScore += w.s1;
@@ -2664,9 +2683,8 @@ export default function useMatrixScanner({
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 6.5;
+            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0; // Đồng bộ lên 7.0
 
-            // X5 VÀ X10 OVERRIDES
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
             const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
 
@@ -2698,13 +2716,14 @@ export default function useMatrixScanner({
 
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
-            let overrideTag = '';
-            if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
-            else if (isSniperOverride) overrideTag = '🎯 SNIPER';
-            else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
-            else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
-            else if (isX5SniperOverride) overrideTag = '🎯 X5-SNIPER';
-            else if (isX10SqueezeOverride) overrideTag = '🚀 X10-SQUEEZE';
+            // Gắn Tên Chiến thuật vào Override Tag
+            let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
+            if (overrideTag === '') {
+                if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
+                else if (isSniperOverride) overrideTag = '🎯 SNIPER';
+                else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
+                else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
+            }
 
             scanResultsPool.push({
               symbol: targetSymbol,
@@ -2743,7 +2762,7 @@ export default function useMatrixScanner({
     runCrossAssetScan();
     const scanTimer = setInterval(runCrossAssetScan, 40000); 
     return () => { isMounted = false; clearInterval(scanTimer); };
-  }, []); 
+  }, [systemHealth]); 
 
   useEffect(() => {
     if (!sonarEnabled || scannedTopSetups.length === 0 || scannedTopSetups[0]?.isEmpty) {
@@ -2859,6 +2878,39 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Missing API Keys on Backend.' });
       }
 
+      // ---------------------------------------------------------------------
+      // VÁ LỖI MỚI: Bypass Ký hợp đồng TradFi (Vàng, Bạc, Ngoại hối)
+      // ---------------------------------------------------------------------
+      if (req.body.action === 'SIGN_TRADFI') {
+        const params = new URLSearchParams();
+        params.append('timestamp', Date.now().toString());
+        params.append('recvWindow', '5000');
+        
+        const queryString = params.toString();
+        const signature = crypto.createHmac('sha256', API_SECRET).update(queryString).digest('hex');
+        
+        // Endpoint chính thức của Binance cho TradFi-Perps
+        const targetUrl = `https://fapi.binance.com/fapi/v1/stock/contract?${queryString}&signature=${signature}`;
+        
+        const binanceRes = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'X-MBX-APIKEY': API_KEY,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        });
+
+        const textRaw = await binanceRes.text();
+        let data;
+        try { data = JSON.parse(textRaw); } catch(e) { data = { msg: textRaw } };
+
+        if (!binanceRes.ok) return res.status(binanceRes.status).json({ error: 'TradFi Sign Failed', details: data });
+        return res.status(200).json(data);
+      }
+
+      // ---------------------------------------------------------------------
+      // CÁC LOGIC BATCH ORDERS VÀ LỆNH LIMIT/MARKET GIỮ NGUYÊN
+      // ---------------------------------------------------------------------
       if (req.body.batchOrders) {
         const params = new URLSearchParams();
         params.append('batchOrders', JSON.stringify(req.body.batchOrders));
@@ -2878,7 +2930,6 @@ export default async function handler(req, res) {
           }
         });
 
-        // Bóc tách Header Rate Limit của Binance
         const weight1m = binanceRes.headers.get('x-mbx-used-weight-1m');
         if (weight1m) {
             res.setHeader('x-mbx-used-weight-1m', weight1m);
@@ -2922,7 +2973,6 @@ export default async function handler(req, res) {
         }
       });
 
-      // Bóc tách Header Rate Limit
       const weight1m = binanceRes.headers.get('x-mbx-used-weight-1m');
       if (weight1m) {
           res.setHeader('x-mbx-used-weight-1m', weight1m);
@@ -2938,7 +2988,7 @@ export default async function handler(req, res) {
     }
 
     // =========================================================================
-    // 2. LUỒNG LẤY DỮ LIỆU (GET) - AN TOÀN VÀ BỌC LỖI TOÀN DIỆN
+    // 2. LUỒNG LẤY DỮ LIỆU (GET) - GIỮ NGUYÊN
     // =========================================================================
     if (req.method === 'GET') {
       const queryParams = req.query || {};
@@ -2978,7 +3028,6 @@ export default async function handler(req, res) {
       
       const binanceRes = await fetch(targetUrl, { headers });
       
-      // Bóc tách Header Rate Limit của Binance
       const weight1m = binanceRes.headers.get('x-mbx-used-weight-1m');
       if (weight1m) {
           res.setHeader('x-mbx-used-weight-1m', weight1m);

@@ -1,4 +1,4 @@
-/// FILE: src\hooks\useMatrixScanner.js
+/// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
@@ -127,7 +127,7 @@ export default function useMatrixScanner({
               fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
               fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250&t=${ts}`) // ĐÃ VÁ: Lấy 1D cho htfSma200
+              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250&t=${ts}`) // 1D for htfSma200
             ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
               ...task,
               klines,
@@ -224,7 +224,6 @@ export default function useMatrixScanner({
             const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
             const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
 
-            // VÁ LỖI TOÁN HỌC: Giờ hàm lấy thêm Tên Chiến Thuật
             const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
                 (atr14/price)*100, localObi, dir
@@ -254,7 +253,6 @@ export default function useMatrixScanner({
 
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
 
-            // VÁ LỖI ĐỒNG BỘ: Sử dụng 1D SMA200 cho Scanner giống HUD
             const closesHTF = Array.isArray(klinesHTF) && klinesHTF.length >= 50 ? klinesHTF.map(d => parseFloat(d[4])) : closesMTF;
             const htfSma200 = QuantMath.sma(closesHTF, 200);
 
@@ -267,7 +265,6 @@ export default function useMatrixScanner({
             }
             const obvEma20Local = QuantMath.ema(obvArrayLocal, 20);
             
-            // So sánh chuẩn xác với SMA200 khung 1D
             const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
@@ -345,7 +342,9 @@ export default function useMatrixScanner({
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0; // Đồng bộ lên 7.0
+            
+            // --- VÁ LỖI LOGIC NANO-CAP TẠI ĐÂY ---
+            const isNanoCapOverride = (!isVolSafe || !isRegimeSafe) && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0;
 
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
             const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
@@ -353,7 +352,7 @@ export default function useMatrixScanner({
             const isX10SqueezeOverride = !isVolSafe && isSLSafe && hasSqueezeX10 && embeddedScore >= 7.0 && simulatedRR >= 4.0;
             const isX5SniperOverride = !isSLSafe && isRegimeSafe && hasSniperX5 && embeddedScore >= 7.0 && simulatedRR >= 3.0;
 
-            const finalRegimeCheck = isRegimeSafe || isGoldenOverride;
+            const finalRegimeCheck = isRegimeSafe || isGoldenOverride || isNanoCapOverride;
             const finalVolCheck = isVolSafe || isHighRROverride || isNanoCapOverride || isX10SqueezeOverride;
             const finalSLCheck = isSLSafe || isSniperOverride || isNanoCapOverride || isX5SniperOverride;
 
@@ -361,14 +360,27 @@ export default function useMatrixScanner({
             if (!isApproved || embeddedScore < 6.5) continue; 
 
             const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
-            
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
+            
+            // --- VÁ LỖI CRASH (Thiếu biến dynamicSlDistance) TẠI ĐÂY ---
             const appliedRiskPercent = 1.0 * riskMultiplier; 
             const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
-            
-            const slPercentForSize = dynamicSlDistance / entry; 
+
+            const atrPercentLocal = (atr14 / price) * 100;
+            const minSafeAtr = 0.005;
+            const isCompressedLocal = l2 === 'Compression' || bbwRank < 20;
+            const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(atrPercentLocal, minSafeAtr * 100) * 1.5 : atrPercentLocal;
+            const sessionMult = apiMacroRef.current?.sessionMultiplier || 1.0;
+
+            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * sessionMult; 
+            const sizeSlDistance = riskDiffTech + slippageBuffer;
+
+            let slPercentForSize = sizeSlDistance / entry;
+            if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
+
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
+            // -------------------------------------------------------------
             
             if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
 
@@ -378,7 +390,6 @@ export default function useMatrixScanner({
 
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
-            // Gắn Tên Chiến thuật vào Override Tag
             let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
             if (overrideTag === '') {
                 if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
