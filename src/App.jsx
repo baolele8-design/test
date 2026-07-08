@@ -26,7 +26,7 @@ export default function AntiFragileTerminal() {
 
   const [tradeSetup, setTradeSetup] = useState({
     tradeType: 'FUTURES', direction: 'LONG', execution: 'LIMIT', 
-    riskPercent: 1.0, entry: 0, slTech: 0, tp1: 0  
+    riskPercent: 1.0, entry: 0, slTech: 0, tp1: 0, activeStrategy: "TIÊU CHUẨN" // <-- THÊM activeStrategy
   });
 
   const [tradeLogs, setTradeLogs] = useState([]);
@@ -516,7 +516,8 @@ BẤT DI BẤT DỊCH:
 
     const isSfp = dir === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     
-    const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
+    // GỌI HÀM VÀ HỨNG THÊM strategyName
+    const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
         autoData.bbwRank, 
         autoData.bbwSlope, 
         isSfp, 
@@ -538,17 +539,23 @@ BẤT DI BẤT DỊCH:
       execution: execType, 
       entry: Number(suggestedEntry.toFixed(precision)), 
       slTech: Number(sl.toFixed(precision)), 
-      tp1: Number(tp1.toFixed(precision)) 
+      tp1: Number(tp1.toFixed(precision)),
+      activeStrategy: strategyName // <-- BƠM TÊN CHIẾN THUẬT VÀO STATE
     }));
     
+    // NÂNG CẤP TOAST THÔNG BÁO
     if (!(autoData.rsi >= 45 && autoData.rsi <= 55 && (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme'))) {
-        showToast(`✅ AUTO SYNC: Khởi tạo Template Động (SL ${slMult} ATR | TP ${tpMult} ATR)`);
+        showToast(`⚡ KÍCH HOẠT: ${strategyName} | SL: ${slMult.toFixed(2)} ATR | TP: ${tpMult.toFixed(1)} ATR`);
     }
   };
 
   const injectScannedSetup = (setup) => {
     setSymbol(setup.symbol); setIntervalTime(setup.interval);
-    setTradeSetup(prev => ({ ...prev, direction: setup.direction, entry: setup.entry, slTech: setup.slTech, tp1: setup.tp1 }));
+    setTradeSetup(prev => ({ 
+        ...prev, direction: setup.direction, entry: setup.entry, 
+        slTech: setup.slTech, tp1: setup.tp1, 
+        activeStrategy: setup.overrideTag || "TIÊU CHUẨN" // <-- NHẬN TAG TỪ SCANNER
+    }));
     showToast(`🚀 Đã nạp cấu trúc ${setup.symbol} [${setup.interval}] lên tổng đài chỉ huy!`);
   };
 

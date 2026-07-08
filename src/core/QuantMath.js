@@ -238,22 +238,37 @@ const QuantMath = {
   },
 
   // THÊM MỚI: Bắt Target x5, x10
+  // THÊM MỚI: Bắt Target x5, x10 có gắn Tên Chiến Thuật và Noise Buffer
   dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
       let tpMult = 2.0; 
       let slMult = 1.5; 
+      let strategyName = "TIÊU CHUẨN (R:R 1:1.3+)";
 
+      // TẬN DỤNG TỐI ĐA atrPercent: Nếu biến động phần trăm quá lớn (>2.0%), nới đệm SL ra 0.2 ATR để tránh bị râu rác quét oan.
+      const noiseBuffer = atrPercent > 2.0 ? 0.2 : 0;
+
+      // CHIẾN THUẬT 1: SQUEEZE BREAKOUT (X10)
       if (bbwRank <= 15 && bbwSlope > 10) {
           tpMult = 7.0; 
-          slMult = 1.0; 
+          slMult = 1.0 + noiseBuffer; 
+          strategyName = "🚀 X10 SQUEEZE BREAKOUT";
       }
-      
-      if (isSfp) {
-          if ((direction === 'LONG' && obi > 0.75) || (direction === 'SHORT' && obi < 0.25)) {
+      // CHIẾN THUẬT 2: SNIPER LIQUIDITY (X5)
+      else if (isSfp) {
+          if ((direction === 'LONG' && obi > 0.70) || (direction === 'SHORT' && obi < 0.30)) {
               tpMult = 4.0; 
-              slMult = 0.6; 
+              slMult = 0.6 + (noiseBuffer / 2); 
+              strategyName = "🎯 X5 SNIPER SFP";
           }
       }
-      return { tpMult, slMult };
+      // CHIẾN THUẬT 3: ORDERBOOK IMBALANCE (X3) - Đánh theo tường Limit siêu dày
+      else if (obi > 0.85 || obi < 0.15) {
+          tpMult = 3.0;
+          slMult = 1.2 + noiseBuffer;
+          strategyName = "🐳 WHALE IMBALANCE (X3)";
+      }
+
+      return { tpMult, slMult, strategyName };
   },
 
   estimateLiquidation: (notionalUSD, leverage, entry, direction, brackets) => {

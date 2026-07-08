@@ -176,6 +176,19 @@ export default function OrderForm({
 
         <div className={`bg-gradient-to-br p-4 rounded-lg border flex flex-col justify-between shadow-inner relative transition-colors ${mathCore.hasMinNotionalError ? 'from-red-950/40 to-[#0a0a0c] border-red-900/50' : mathCore.isSizeForcedByExchange ? 'from-amber-950/30 to-[#0a0a0c] border-amber-900/50' : 'from-slate-900 to-[#0a0a0c] border-slate-800'}`}>
           <div className="absolute top-2 right-2 text-[8px] text-slate-600 font-bold border border-slate-800 px-1.5 py-0.5 rounded uppercase">Định Cỡ Vị Thế</div>
+          {/* GIAO DIỆN MỚI: HIỂN THỊ TÊN CHIẾN THUẬT ĐANG KÍCH HOẠT */}
+          <div className="mt-2 mb-1 flex items-center justify-between border-b border-slate-800 pb-2">
+             <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+                 <Target className="w-3.5 h-3.5 text-blue-500" /> CHIẾN THUẬT AUTO:
+             </span>
+             <span className={`text-[10px] font-black px-2 py-0.5 rounded border animate-pulse shadow-lg
+                 ${tradeSetup.activeStrategy?.includes('X10') ? 'bg-pink-900/30 text-pink-400 border-pink-500/50' 
+                 : tradeSetup.activeStrategy?.includes('X5') ? 'bg-amber-900/30 text-amber-400 border-amber-500/50'
+                 : tradeSetup.activeStrategy?.includes('X3') ? 'bg-cyan-900/30 text-cyan-400 border-cyan-500/50'
+                 : 'bg-slate-900 text-slate-400 border-slate-700'}`}>
+                 {tradeSetup.activeStrategy || "TIÊU CHUẨN"}
+             </span>
+          </div>
           <div className="space-y-3 mt-4">
             <div className="flex justify-between items-end border-b border-slate-800 pb-1.5">
               <span className="text-[10px] font-bold text-slate-500">Khối lượng (Size USD):</span>

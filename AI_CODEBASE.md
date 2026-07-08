@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 08, 2026, 12:58 PM ---
+--- START OF FILE Paste Jul 08, 2026, 01:22 PM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -61,7 +61,7 @@ export default function AntiFragileTerminal() {
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals, setSystemHealth
+    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // VÁ LỖI SCOPE: ĐÃ TRUYỀN systemHealth
   });
 
   useEffect(() => {
@@ -221,8 +221,8 @@ export default function AntiFragileTerminal() {
     if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
 
     const activeMakerFee = tradeFees.maker; const activeTakerFee = tradeFees.taker;
-    const costDragLoss = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'MARKET', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime);
-    const costDragWin = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'LIMIT', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime);
+    const costDragLoss = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'MARKET', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime, autoData.obi);
+    const costDragWin = QuantMath.costDrag(tradeSetup.entry, tradeSetup.tradeType, tradeSetup.direction, tradeSetup.execution, 'LIMIT', autoData.fundingRate / 100, apiMacro.realSpreadPct, tHold, activeMakerFee, activeTakerFee, intervalTime, autoData.obi);
     const rewardDiff1 = Math.abs(tradeSetup.tp1 - tradeSetup.entry);
     let theoreticalRR = riskDiffTech > 0 ? ((rewardDiff1 - costDragWin) / (riskDiffTech + costDragLoss)) : 0;
     if (!isFinite(theoreticalRR) || isNaN(theoreticalRR) || theoreticalRR < 0) theoreticalRR = 0;
@@ -276,7 +276,7 @@ export default function AntiFragileTerminal() {
       suggestedLeverage, theoreticalRR: theoreticalRR.toFixed(2), trueEVValue: trueEVCalc.toFixed(3), kellyPct: (kellyDec * 100).toFixed(2),
       liqEstimate, liqSafetyMargin, leverageExceedsExchangeCap, dynamicSlDistance: sizeSlDistance, hasMinNotionalError, isSizeForcedByExchange
     };
-  }, [autoData, apiMacro, liveCapital, tradeSetup, symbol, tradeStats, leverageBrackets, vectorRegime, tradeFees, dynamicMinNotionals, systemScore.score]);
+  }, [autoData, apiMacro, liveCapital, tradeSetup, symbol, tradeStats, leverageBrackets, vectorRegime, tradeFees, dynamicMinNotionals, systemScore.score, intervalTime]);
 
   const logicGates = useMemo(() => {
     if (!autoData || !mathCore || !vectorRegime) return { hardGates: [], softGates: [], softScore: 0, isApproved: false };
@@ -500,13 +500,13 @@ BẤT DI BẤT DỊCH:
     finally { setIsSyncing(false); }
   };
 
+  // VÁ LỖI LOGIC: Đã đẩy TP/SL Bất đối xứng vào hàm Auto Sync
   const handleMasterAuto = () => { 
     if (!autoData || !vectorRegime) return;
     let dir = vectorRegime.details.l1 === 'Trend Up' ? 'LONG' : 'SHORT'; 
     let execType = 'LIMIT'; 
     let suggestedEntry = autoData.currentPrice;
 
-    // 1. Xác định Hướng (Direction) và Giá vào (Entry) dựa trên Regime
     if (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme') {
        if (autoData.rsi < 45) dir = 'LONG'; 
        else if (autoData.rsi > 55) dir = 'SHORT'; 
@@ -520,12 +520,8 @@ BẤT DI BẤT DỊCH:
        suggestedEntry = dir === 'LONG' ? autoData.currentPrice - (0.5 * autoData.atr14) : autoData.currentPrice + (0.5 * autoData.atr14);
     }
 
-    // =====================================================================
-    // 2. TÍNH TOÁN TP/SL BẤT ĐỐI XỨNG (SĂN KÈO X5, X10 THEO QUANT CORE)
-    // =====================================================================
     const isSfp = dir === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
     
-    // Gọi hàm từ QuantMath để lấy hệ số nhân TP và SL tự thích nghi
     const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
         autoData.bbwRank, 
         autoData.bbwSlope, 
@@ -538,12 +534,10 @@ BẤT DI BẤT DỊCH:
     const sl = dir === 'LONG' ? suggestedEntry - (slMult * autoData.atr14) : suggestedEntry + (slMult * autoData.atr14);
     const tp1 = dir === 'LONG' ? suggestedEntry + (tpMult * autoData.atr14) : suggestedEntry - (tpMult * autoData.atr14);
 
-    // 3. Xử lý làm tròn số (Tick Size) chuẩn xác cho sàn Binance
     const tick = tickSizes[symbol] || 0.0001;
     const tickStr = parseFloat(tick).toString();
     const precision = tickStr.includes('e-') ? parseInt(tickStr.split('e-')[1]) : (tickStr.includes('.') ? tickStr.split('.')[1].length : 4);
 
-    // 4. Bơm dữ liệu vào Form
     setTradeSetup(prev => ({ 
       ...prev, 
       direction: dir, 
@@ -553,7 +547,6 @@ BẤT DI BẤT DỊCH:
       tp1: Number(tp1.toFixed(precision)) 
     }));
     
-    // 5. Cảnh báo/Thông báo hiển thị lên HUD
     if (!(autoData.rsi >= 45 && autoData.rsi <= 55 && (vectorRegime.details.l1 === 'Range' || vectorRegime.details.l2 === 'Extreme'))) {
         showToast(`✅ AUTO SYNC: Khởi tạo Template Động (SL ${slMult} ATR | TP ${tpMult} ATR)`);
     }
@@ -1049,6 +1042,7 @@ export default function LogicGates({
 /// FILE: src\components\terminal\OrderForm.jsx
 =========================================
 
+// FILE: src/components/terminal/OrderForm.jsx
 import React, { useState } from 'react';
 import { Zap, TrendingUp, TrendingDown, BarChart3, Lock, Rocket, Loader2 } from 'lucide-react';
 
@@ -1105,19 +1099,19 @@ export default function OrderForm({
                 ...(tradeSetup.execution === 'LIMIT' ? { price: finalEntry, timeInForce: 'GTC' } : {})
             });
 
-            // 2. Lệnh Stoploss Cứng (Chuyển sang Reduce Only + Khối lượng tuyệt đối)
+            // 2. Lệnh Stoploss Cứng (ĐÃ THÊM priceProtect)
             if (parseFloat(finalSl) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'STOP_MARKET', 
-                    triggerPrice: finalSl, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE" 
+                    triggerPrice: finalSl, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE", priceProtect: "true" 
                 });
             }
 
-            // 3. Lệnh Take Profit (Chuyển sang Reduce Only + Khối lượng tuyệt đối)
+            // 3. Lệnh Take Profit (ĐÃ THÊM priceProtect)
             if (parseFloat(finalTp) > 0) {
                 batch.push({ 
                     symbol: symbol, side: exitSide, type: 'TAKE_PROFIT_MARKET', 
-                    triggerPrice: finalTp, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE" 
+                    triggerPrice: finalTp, quantity: finalQty, reduceOnly: "true", workingType: "MARK_PRICE", priceProtect: "true" 
                 });
             }
 
@@ -1128,9 +1122,6 @@ export default function OrderForm({
                 batchOrders: batch
             };
 
-            // ---------------------------------------------------------
-            // CẦU NỐI LƯỢNG TỬ (Gửi mảng batch đã dọn dẹp)
-            // ---------------------------------------------------------
             const LOCAL_BRIDGE_URL = 'http://192.168.1.60:1337/api/execute-batch';
             
             const res = await fetch(LOCAL_BRIDGE_URL, {
@@ -1142,7 +1133,6 @@ export default function OrderForm({
             const data = await res.json();
             if (!res.ok) throw new Error(data.details?.msg || data.error || 'Bridge Cục bộ từ chối.');
 
-            // BỘ QUÉT LỖI ẨN CỦA BINANCE (Phát hiện lỗi TP/SL bị rớt)
             if (Array.isArray(data)) {
                 const errors = data.filter(r => r.error === true || r.code !== undefined);
                 if (errors.length > 0) {
@@ -1169,7 +1159,6 @@ export default function OrderForm({
           <Zap className="w-3 h-3" /> AUTO SYNC TEMPLATE
         </button>
 
-        {/* NÚT BẮN CỤM LỆNH LIÊN HOÀN */}
         <button 
           onClick={handleExecuteBatch} 
           disabled={isExecuting || !autoData} 
@@ -1617,16 +1606,14 @@ export const POOL_INTERVALS = ['5m', '15m', '1h', '4h', '1d'];
 /// FILE: src\core\QuantMath.js
 =========================================
 
-// File: src/core/QuantMath.js
+// FILE: src/core/QuantMath.js
 
 const QuantMath = {
-  // Tính toán đường trung bình động đơn giản (SMA)
   sma: (data, period) => {
     if (!data || data.length < period || period <= 0) return 0;
     return data.slice(-period).reduce((a, b) => a + b, 0) / period;
   },
   
-  // Tính toán đường trung bình động lũy thừa (EMA)
   ema: (data, period) => {
     if (!data || data.length < period || period <= 0) return 0;
     const k = 2 / (period + 1);
@@ -1637,10 +1624,8 @@ const QuantMath = {
     return emaVal;
   },
   
-  // Tính toán biên độ dao động thực tế (True Range)
   trueRange: (h, l, pc) => Math.max(h - l || 0, Math.abs(h - pc) || 0, Math.abs(l - pc) || 0),
   
-  // Tính toán Average True Range (ATR) để đo lường mức độ biến động
   atr: (highs, lows, closes, period) => {
     if (!closes || closes.length < period + 1 || highs.length !== closes.length) return 0;
     let trs = [];
@@ -1654,7 +1639,6 @@ const QuantMath = {
     return currentAtr || 0;
   },
   
-  // Tính toán chỉ số định hướng trung bình (ADX) để đo sức mạnh xu hướng
   adx: (highs, lows, closes, period = 14) => {
     if (!closes || closes.length < period * 2) return 0;
     let trs = [], plusDMs = [], minusDMs = [];
@@ -1687,7 +1671,6 @@ const QuantMath = {
     return adx || 0;
   },
   
-  // Tính toán chỉ số sức mạnh tương đối (RSI)
   rsi: (closes, period = 14) => {
     if (!closes || closes.length < period + 1) return 50;
     let gains = 0, losses = 0;
@@ -1708,7 +1691,6 @@ const QuantMath = {
     return 100 - (100 / (1 + rs));
   },
   
-  // Tính toán dải Bollinger Bands và độ rộng dải (BBW)
   bollinger: (closes, period = 20, stdDev = 2) => {
     if (!closes || closes.length < period) return { bbw: 0, upper: 0, lower: 0, sma: 0 };
     const slice = closes.slice(-period);
@@ -1721,14 +1703,12 @@ const QuantMath = {
     return { bbw, upper, lower, sma };
   },
 
-  // Tính toán vị thế bách phân vị (Percentile Rank) của một giá trị so với dữ liệu quá khứ
   percentileRank: (currentValue, historicalArray) => {
     if (!historicalArray || historicalArray.length === 0) return 50;
     const belowCount = historicalArray.filter(val => val < currentValue).length;
     return (belowCount / historicalArray.length) * 100;
   },
   
-  // Tính toán On-Balance Volume (OBV) dựa trên giá và khối lượng
   obv: (closes, volumes) => { 
     if (!closes || closes.length < 2) return 0;
     let obv = 0;
@@ -1739,7 +1719,6 @@ const QuantMath = {
     return obv;
   },
 
-  // Tính toán dòng tiền Chaikin (Chaikin Money Flow - CMF)
   cmf: (highs, lows, closes, volumes, period = 20) => { 
     if (!closes || closes.length < period) return 0;
     let mfValues = [];
@@ -1752,13 +1731,12 @@ const QuantMath = {
     return recentMfSum / (recentVolSum || 1);
   },
   
-  // Ước tính chi phí trượt giá, phí giao dịch và Funding Rate (Cost Drag)
+  // VÁ LỖI: Thêm OBI phạt trượt giá
   costDrag: (entryPrice, tradeType, direction, entryExecution, exitExecution, fundingRate, spreadPercent, holdingCycles = 1, makerFee = 0.0002, takerFee = 0.0004, interval = '1h', obi = 0.5) => { 
-    // BỔ SUNG LOGIC: Slippage bị phạt nặng nếu OBI bất lợi (Orderbook mỏng)
     let slippagePenalty = 0;
     if (entryExecution === 'MARKET') {
-        if (direction === 'LONG' && obi < 0.4) slippagePenalty = 0.0015; // Mua đuổi khi tường Sell dày
-        if (direction === 'SHORT' && obi > 0.6) slippagePenalty = 0.0015; // Bán đuổi khi tường Buy dày
+        if (direction === 'LONG' && obi < 0.4) slippagePenalty = 0.0015; 
+        if (direction === 'SHORT' && obi > 0.6) slippagePenalty = 0.0015; 
     }
     const entrySlippage = entryExecution === 'MARKET' ? (0.001 + slippagePenalty) : 0; 
     const entryFee = entryExecution === 'MARKET' ? takerFee : makerFee;
@@ -1768,7 +1746,7 @@ const QuantMath = {
 
     const spreadCost = (spreadPercent / 100) / 2;
     
-    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; // ĐÃ XÓA 1W
+    const intervalToHours = { '5m': 5/60, '15m': 15/60, '1h': 1, '4h': 4, '1d': 24 }; // Xóa 1w
     const hoursPerCandle = intervalToHours[interval] || 1;
     const totalHoldingHours = holdingCycles * hoursPerCandle;
     const realFundingCycles = totalHoldingHours / 8; 
@@ -1788,12 +1766,10 @@ const QuantMath = {
     return entryCostPerCoin + exitCostPerCoin + (fundingImpact * entryPrice); 
   },
 
-  // Tính toán giá trị kỳ vọng thực (True Expected Value)
   trueEV: (winRate, reward, lossRate, risk) => {
      return (winRate * reward) - (lossRate * risk);
   },
   
-  // Áp dụng tiêu chuẩn Kelly để tính toán tỷ lệ đi vốn an toàn
   kellyCriterion: (winRate, historicalAvgRR, nTrades = 0) => {
     if (nTrades < 5) return 0.02; 
     if(winRate === 0 || historicalAvgRR === 0) return 0.01; 
@@ -1807,7 +1783,6 @@ const QuantMath = {
     return halfKelly;
   },
 
-  // Quét và tính toán độ dốc, khoảng cách giữa 2 đường EMA
   scanEmaRange: (closesArray, fastPeriod, slowPeriod, lookback = 20, atrValue = 0) => {
       if (!closesArray || closesArray.length < Math.max(fastPeriod, slowPeriod) + lookback) {
          return { fastEmaCurrent: 0, slowEmaCurrent: 0, fastSlope: 0, slowSlope: 0, isCrossBull: false, isCrossBear: false, spreadPercent: 0, normFastSlope: 0, normSlowSlope: 0 };
@@ -1833,7 +1808,7 @@ const QuantMath = {
       return { fastEmaCurrent, slowEmaCurrent, fastSlope, slowSlope, isCrossBull, isCrossBear, spreadPercent, normFastSlope, normSlowSlope };
   },
   
-  // Thuật toán phát hiện mô hình quét thanh khoản (Swing Failure Pattern - SFP)
+  // VÁ LỖI: Buộc có Khối lượng khi bắt SFP
   detectSFP_Advanced: (highs, lows, closes, volumes, avgVolume, direction) => {
     if (!closes || closes.length < 10 || !volumes) return false;
     const triggerIndex = closes.length - 2; 
@@ -1843,8 +1818,6 @@ const QuantMath = {
     const triggerVol = volumes[triggerIndex];
 
     if (triggerVol < avgVolume * 1.2) return false;
-    let lastPivotHigh = -1;
-    let lastPivotLow = Infinity;
 
     let lastPivotHigh = -1;
     let lastPivotLow = Infinity;
@@ -1871,30 +1844,26 @@ const QuantMath = {
         return (lastPivotLow !== Infinity && triggerLow < lastPivotLow && triggerClose > lastPivotLow);
     }
   },
-  dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
-      let tpMult = 2.0; // Default R:R = 1:2
-      let slMult = 1.5; // Default SL = 1.5 ATR
 
-      // CHIẾN THUẬT 1: NANO-CAP SQUEEZE (X5 - X10)
-      // Điều kiện: Đang nén cực đại (BBW < 10), và bắt đầu ngóc đầu (bbwSlope > 10)
+  // THÊM MỚI: Bắt Target x5, x10
+  dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
+      let tpMult = 2.0; 
+      let slMult = 1.5; 
+
       if (bbwRank <= 15 && bbwSlope > 10) {
-          tpMult = 7.0; // Kéo Target xa lên 7 ATR để bắt trọn cây nến Breakout
-          slMult = 1.0; // Bóp SL lại vì Breakout xịn không được quay lại nền giá
+          tpMult = 7.0; 
+          slMult = 1.0; 
       }
       
-      // CHIẾN THUẬT 2: FLASH-CRASH SNIPER (X5)
-      // Điều kiện: Vừa quét SFP xong, và có tường Orderbook khổng lồ bảo vệ
       if (isSfp) {
           if ((direction === 'LONG' && obi > 0.75) || (direction === 'SHORT' && obi < 0.25)) {
-              tpMult = 4.0; // Kéo Target bắt cú Reversal
-              slMult = 0.6; // Đặt SL ngay sau bức tường Limit + Râu SFP
+              tpMult = 4.0; 
+              slMult = 0.6; 
           }
       }
-
       return { tpMult, slMult };
   },
 
-  // Ước tính giá thanh lý và đòn bẩy tối đa dựa trên Bracket của Binance
   estimateLiquidation: (notionalUSD, leverage, entry, direction, brackets) => {
     if (!brackets || brackets.length === 0 || !leverage) return null;
     const tier = brackets.find(b => notionalUSD >= b.notionalFloor && notionalUSD < b.notionalCap) 
@@ -2048,7 +2017,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
       const isWknd = (day === 0 || day === 6);
       if (isWknd) mult = mult * 0.5;
       
-
       setApiMacro(prev => ({ 
         ...prev, isWeekend: isWknd, tradingSession: currentSession, sessionMultiplier: mult
       }));
@@ -2118,7 +2086,6 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
 
         const ts = Date.now(); 
         
-        // TÍCH HỢP ĐO LƯỜNG LATENCY VÀ WEIGHT VÀO SAFEFETCH
         const safeFetch = async (url) => {
           try {
             const startPing = Date.now();
@@ -2258,6 +2225,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
         const isObvBearDivergence = (currentPrice > htfSma200) && (obvArray[obvArray.length-1] < obvEma20);
         const isObvBullDivergence = (currentPrice < htfSma200) && (obvArray[obvArray.length-1] > obvEma20);
 
+        // VÁ LỖI ĐỒNG BỘ: Chuyền parameter chính xác cho detectSFP_Advanced
         setAutoData({
             currentPrice, atr14, atrPercent: currentPrice > 0 ? (atr14 / currentPrice) * 100 : 0, atrRank,
             adx: adxValue, htfSma200, rsi: rsiValue, bbwRank, bbw: bollinger20.bbw, cmf: cmfValue,
@@ -2271,7 +2239,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
             obi: fetchedObi, bbwSlope: bbwSlopeValue,
             currentOi: currentOiValue, oiEma: oiEma14, oiDelta: oiDeltaPercent, isOiSpiking: currentOiValue > oiEma14,
             currentVolume: volumesLTF[volumesLTF.length - 1], lastClosedVolume: volumesLTF[volumesLTF.length - 2], 
-            avgVolume20: QuantMath.sma(volumesLTF.slice(0, -1), 20), 
+            avgVolume20: avgVolume20, 
             isObvBearDivergence, isObvBullDivergence,
             isBullishSFP: QuantMath.detectSFP_Advanced(highsLTF, lowsLTF, closesLTF, volumesLTF, avgVolume20, 'LONG'),
             isBearishSFP: QuantMath.detectSFP_Advanced(highsLTF, lowsLTF, closesLTF, volumesLTF, avgVolume20, 'SHORT'),
@@ -2316,7 +2284,7 @@ import { POOL_INTERVALS } from '../config/constants';
 
 export default function useMatrixScanner({ 
   liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, 
-  dynamicPool, dynamicMinNotionals, setSystemHealth 
+  dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth // ĐÃ VÁ LỖI SCOPE
 }) {
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
@@ -2343,7 +2311,6 @@ export default function useMatrixScanner({
   useEffect(() => {
     let isMounted = true;
 
-    // TÍCH HỢP THEO DÕI RATE LIMIT TRONG SCANNER
     const fetchWithTimeout = async (url, ms = 8000) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
@@ -2409,7 +2376,7 @@ export default function useMatrixScanner({
 
         const fetchTasks = [];
         for (const targetSymbol of currentPool) {
-          for (const targetInterval of POOL_INTERVALS) { // Đã xóa 1W từ constants.js
+          for (const targetInterval of POOL_INTERVALS) { // Đã chuẩn hóa không có 1W
             fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
           }
         }
@@ -2418,18 +2385,8 @@ export default function useMatrixScanner({
         const results = [];
 
         for (let i = 0; i < fetchTasks.length; i += chunkSize) {
-          // ========================================================
-          // CƠ CHẾ SMART RATE LIMIT PACING (BẢO VỆ API BINANCE)
-          // ========================================================
-          setSystemHealth(prev => {
-              if (prev.weight > 1500) {
-                  showToast("⚠️ API Weight cao. Scanner tự động giảm tốc (Pacing)...");
-              }
-              return prev;
-          });
-          
-          // Tự động tạm dừng (Sleep) 3 giây nếu Weight chạm ngưỡng nguy hiểm
-          if (systemHealth?.weight > 1200) {
+          // VÁ LỖI: Rate Limit Pacing với Scope chuẩn
+          if (systemHealth && systemHealth.weight > 1200) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
@@ -2440,7 +2397,7 @@ export default function useMatrixScanner({
             if (task.interval === '15m') mtfInterval = '1h';
             else if (task.interval === '1h') mtfInterval = '4h';
             else if (task.interval === '4h') mtfInterval = '1d';
-            else if (task.interval === '1d') mtfInterval = '1w';
+            else if (task.interval === '1d') mtfInterval = '1w'; // Chỉ để MTF lấy data
 
             let macroInterval = task.interval;
             if (task.interval === '1w') macroInterval = '1d';
@@ -2486,6 +2443,13 @@ export default function useMatrixScanner({
             const quoteVolumes = klines.map(d => parseFloat(d[7])); 
             const price = closes[closes.length - 1];
 
+            // VÁ LỖI: Bơm Vol vào SFP
+            const avgVolume20 = QuantMath.sma(quoteVolumes.slice(0, -1), 20);
+            const closedVolume = quoteVolumes[quoteVolumes.length - 2];
+
+            const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
+            const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
+
             const atr14 = QuantMath.atr(highs, lows, closes, 14);
             const rsi = QuantMath.rsi(closes, 14);
             const cmf = QuantMath.cmf(highs, lows, closes, quoteVolumes, 20); 
@@ -2523,9 +2487,6 @@ export default function useMatrixScanner({
             else if (volScoreLocal > 65) l2 = "Expansion";
             else l2 = "Normal";
 
-            const avgVolume20 = QuantMath.sma(quoteVolumes.slice(0, -1), 20);
-            const closedVolume = quoteVolumes[quoteVolumes.length - 2];
-
             let dir = l1.includes('Trend Up') ? 'LONG' : 'SHORT'; 
             if (l1 === 'Range' || l2 === 'Extreme') {
                 if (rsi < 45) { dir = "LONG"; }
@@ -2533,9 +2494,12 @@ export default function useMatrixScanner({
                 else { dir = cmf > 0 ? "LONG" : "SHORT"; }
             }
 
-            // ========================================================
-            // KHỞI TẠO CHIẾN THUẬT BẤT ĐỐI XỨNG (x2, x5, x10)
-            // ========================================================
+            // VÁ LỖI: Tính toán cấu trúc cRegime và tHold trước khi đẩy vào costDrag
+            let cRegime = 1.0; let tHold = 3;
+            if (l1.includes('Trend')) { cRegime = 1.2; tHold = 9; }
+            else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
+            else { cRegime = 0.8; tHold = 2; }
+
             const localObi = realtimeMetrics[targetSymbol]?.obi || 0.5;
             const { tpMult, slMult } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
@@ -2552,11 +2516,6 @@ export default function useMatrixScanner({
 
             const riskDiffTech = Math.abs(entry - sl);
             
-            let cRegime = 1.0; let tHold = 3;
-            if (l1.includes('Trend')) { cRegime = 1.2; tHold = 9; }
-            else if (l2 === 'Extreme') { cRegime = 0.5; tHold = 1; }
-            else { cRegime = 0.8; tHold = 2; }
-            
             const minSafeAtrScanner = 0.005;
             const isCompressedScanner = l2 === 'Compression' || bbwRank < 20;
             const currentAtrPercent = entry > 0 ? (atr14 / entry) * 100 : 0;
@@ -2568,11 +2527,11 @@ export default function useMatrixScanner({
             
             const realSpread = realtimeMetrics[targetSymbol]?.spread || 0.05;
             const realFunding = realtimeMetrics[targetSymbol]?.funding || 0.0002;
-            const localObi = realtimeMetrics[targetSymbol]?.obi || 0.5;
             
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
             
+            // Đã gắn OBI vào CostDrag
             const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, 'LIMIT', 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, 'LIMIT', 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const rewardDiff = Math.abs(tp1 - entry);
@@ -2580,8 +2539,6 @@ export default function useMatrixScanner({
             let simulatedRR = riskDiffTech > 0 ? ((rewardDiff - costDragWin) / (riskDiffTech + costDragLoss)) : 0;
             if (isNaN(simulatedRR) || !isFinite(simulatedRR) || simulatedRR < 0) simulatedRR = 0;
 
-            const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
-            const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
 
             const obvArrayLocal = [];
@@ -2662,7 +2619,6 @@ export default function useMatrixScanner({
                                (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
                                (l2 === 'Compression' && bbwSlopeLocal > 10);
 
-            const currentOiValue = parseFloat(result.value.klines[result.value.klines.length - 1][7] || 0); 
             const hasNanoCapSynergy = 
                 simulatedRR >= 2.5 && 
                 (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
@@ -2671,9 +2627,8 @@ export default function useMatrixScanner({
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
             const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 6.5;
-            // ========================================================
-            // OVERRIDES MỚI: BĂT CÁC KÈO X5 - X10 TẠI SCANNER
-            // ========================================================
+
+            // X5 VÀ X10 OVERRIDES
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
             const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
 
