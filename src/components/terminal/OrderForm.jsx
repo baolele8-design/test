@@ -176,6 +176,7 @@ export default function OrderForm({
 
         <div className={`bg-gradient-to-br p-4 rounded-lg border flex flex-col justify-between shadow-inner relative transition-colors ${mathCore.hasMinNotionalError ? 'from-red-950/40 to-[#0a0a0c] border-red-900/50' : mathCore.isSizeForcedByExchange ? 'from-amber-950/30 to-[#0a0a0c] border-amber-900/50' : 'from-slate-900 to-[#0a0a0c] border-slate-800'}`}>
           <div className="absolute top-2 right-2 text-[8px] text-slate-600 font-bold border border-slate-800 px-1.5 py-0.5 rounded uppercase">Định Cỡ Vị Thế</div>
+          
           {/* GIAO DIỆN MỚI: HIỂN THỊ TÊN CHIẾN THUẬT ĐANG KÍCH HOẠT */}
           <div className="mt-2 mb-1 flex items-center justify-between border-b border-slate-800 pb-2">
              <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
@@ -189,7 +190,9 @@ export default function OrderForm({
                  {tradeSetup.activeStrategy || "TIÊU CHUẨN"}
              </span>
           </div>
-          <div className="space-y-3 mt-4">
+
+          <div className="space-y-3 mt-2">
+            {/* Giữ nguyên các phần Khối lượng (Size USD) bên dưới... */}
             <div className="flex justify-between items-end border-b border-slate-800 pb-1.5">
               <span className="text-[10px] font-bold text-slate-500">Khối lượng (Size USD):</span>
               <span className={`font-mono text-xs font-black ${mathCore.hasMinNotionalError ? 'text-red-500 animate-pulse' : mathCore.isSizeForcedByExchange ? 'text-amber-400' : 'text-white'}`}>
