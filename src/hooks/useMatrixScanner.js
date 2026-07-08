@@ -2,10 +2,11 @@
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS, POOL_SYMBOLS } from '../config/constants';
+import { TradeValidator } from '../core/TradeValidator';
 
 export default function useMatrixScanner({ 
   liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast, 
-  dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth
+  dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth, tradeLogs
 }) {
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(false);
@@ -287,109 +288,22 @@ export default function useMatrixScanner({
             const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
-            let w = { s1: 2.0, s2: 1.5, s3: 1.5, s4: 1.0, s5: 1.0, s6: 1.5, s7: 1.0, s8: 1.5 }; 
-            if (l1 === 'Range') { w = { s1: 0, s2: 1.5, s3: 4.0, s4: 2.0, s5: 1.5, s6: 1.0, s7: 1.0, s8: 1.0 }; } 
-            else if (l2 === 'Extreme') { w = { s1: 0, s2: 1.0, s3: 3.5, s4: 2.5, s5: 1.5, s6: 2.0, s7: 1.5, s8: 0.5 }; } 
-            else if (l1.includes('Trend') && l2 === 'Expansion') { w = { s1: 3.0, s2: 2.5, s3: 0, s4: 1.0, s5: 1.0, s6: 2.5, s7: 1.0, s8: 2.0 }; }
-
-            const checkS1 = dir === (l1.includes('Trend Up') ? 'LONG' : 'SHORT');
-            const checkS2 = dir === 'LONG' ? cmf > 0.05 : cmf < -0.05;
-            const checkS3 = dir === 'LONG' ? localSfpLong : localSfpShort;
-            const checkS4 = dir === 'LONG' ? (l1.includes('Trend') ? rsi < 65 : rsi < 40) : (l1.includes('Trend') ? rsi > 35 : rsi > 60); 
-            const checkS5 = dir === 'LONG' ? localLsRatio < 1.0 : localLsRatio > 1.0; 
+            const mockVectorDetails = { l1, l2, l3, l4, l5, l6, isAltcoinBleeding: isAltcoinBleedingLocal, isAltcoinSeason: false };
             
-            const localVolSpike = closedVolume > (avgVolume20 * 2.5);
-            const checkS6 = dir === 'LONG' ? (localTakerRatio > 1.05 && !isObvBearDivergenceLocal) : (localTakerRatio < 0.95 && !isObvBullDivergenceLocal);
-            const checkS7 = dir === 'LONG' ? (realFunding < 0 && localVolSpike) : (realFunding > 0 && localVolSpike); 
-            const checkS8 = dir === 'LONG' ? (price > htfSma200 && scan50_200.slowSlope > 0) : (price < htfSma200 && scan50_200.slowSlope < 0); 
-
-            let embeddedScore = 0;
-            if (checkS1) embeddedScore += w.s1;
-            if (checkS2) embeddedScore += w.s2;
-            if (checkS3) embeddedScore += w.s3;
-            if (checkS4) embeddedScore += w.s4;
-            if (checkS5) embeddedScore += w.s5;
-            if (checkS6) embeddedScore += w.s6;
-            if (checkS7) embeddedScore += w.s7;
-            if (checkS8) embeddedScore += w.s8;
-            
-            if (l2 === 'Compression' && bbwSlopeLocal > 10) embeddedScore += 2.0;
-            if (l2 === 'Compression' && ((dir === 'LONG' && localObi > 0.7 && checkS6) || (dir === 'SHORT' && localObi < 0.3 && checkS6))) embeddedScore += 2.0;
-            if (l2 === 'Compression' && checkS2 && checkS6) embeddedScore += 2.0;
-            if (l2 === 'Extreme' && checkS3 && checkS4) embeddedScore += 2.0;
-            if (localVolSpike && !checkS5 && checkS6) embeddedScore += 1.5;
-
-            const isTripleTrendBull = scan20_50.fastSlope > 0 && scan20_50.slowSlope > 0 && scan50_200.slowSlope > 0;
-            const isTripleTrendBear = scan20_50.fastSlope < 0 && scan20_50.slowSlope < 0 && scan50_200.slowSlope < 0;
-            
-            if ((dir === 'LONG' && isTripleTrendBull) || (dir === 'SHORT' && isTripleTrendBear)) embeddedScore += 1.5;
-            if (adxValue > 35 && checkS6) embeddedScore += 1.5;
-            
-            const currentMvrv = mvrvZScoreRef?.current || 0.23;
-            const btcDomSlope = autoDataRef?.current?.btcDomSlope || 0;
-            const btcDomValue = autoDataRef?.current?.btcDomValue || 55.0;
-            
-            if ((dir === 'LONG' && currentMvrv < 1.0 && checkS3) || (dir === 'SHORT' && currentMvrv > 2.5 && checkS3)) embeddedScore += 1.5;
-            if (dir === 'LONG' && targetSymbol !== 'BTCUSDT' && btcDomSlope < -0.5) embeddedScore += 1.0; 
-
-            const isAltcoinBleedingLocal = targetSymbol !== 'BTCUSDT' && btcDomValue > 50 && btcDomSlope > 0.5;
-            if (dir === 'LONG' && isAltcoinBleedingLocal) embeddedScore -= 2.0;
-            if (dir === 'LONG' && currentMvrv >= 1.0) embeddedScore -= 1.5;
-            if (dir === 'SHORT' && currentMvrv <= 0.8) embeddedScore -= 1.5;
-
-            const requiredRR = bbwRank > 80 ? 1.5 : 1.2;
-            const isRRSafe = simulatedRR >= requiredRR;
-            const isRegimeSafe = l1 !== 'Transition' && l2 !== 'Compression';
-            const isVolSafe = closedVolume >= (avgVolume20 * 0.4);
-            const isSLSafe = riskDiffTech > (atr14 * 0.5);
-
-            const isSafeFromKnife = dir === 'LONG' ? (cmf > 0.15 && rsi > 35) : (cmf < -0.15 && rsi < 65);
-            const hasSynergy = (l2 === 'Compression' && checkS2 && checkS6) || 
-                               (l2 === 'Extreme' && checkS3 && checkS4) || 
-                               (localVolSpike && !checkS5 && checkS6) || 
-                               (dir === 'LONG' && targetSymbol !== 'BTCUSDT' && btcDomSlope < -0.5) || 
-                               isTripleTrendBull || isTripleTrendBear || 
-                               (adxValue > 35 && checkS6) || 
-                               (dir === 'LONG' && currentMvrv < 1.0 && checkS3) || 
-                               (dir === 'SHORT' && currentMvrv > 2.5 && checkS3) ||
-                               (l2 === 'Compression' && bbwSlopeLocal > 10);
-
-            const hasNanoCapSynergy = 
-                simulatedRR >= 2.5 && 
-                (l2 === 'Compression' || localSfpLong || localSfpShort || localVolSpike || (dir === 'LONG' && localObi > 0.7) || (dir === 'SHORT' && localObi < 0.3));
-
-            const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
-            const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
-            const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            const isNanoCapOverride = (!isVolSafe || !isRegimeSafe) && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0;
-
-            const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
-            const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
-
-            const isX10SqueezeOverride = !isVolSafe && isSLSafe && hasSqueezeX10 && embeddedScore >= 7.0 && simulatedRR >= 4.0;
-            const isX5SniperOverride = !isSLSafe && isRegimeSafe && hasSniperX5 && embeddedScore >= 7.0 && simulatedRR >= 3.0;
-
-            const finalRegimeCheck = isRegimeSafe || isGoldenOverride || isNanoCapOverride;
-            const finalVolCheck = isVolSafe || isHighRROverride || isNanoCapOverride || isX10SqueezeOverride;
-            const finalSLCheck = isSLSafe || isSniperOverride || isNanoCapOverride || isX5SniperOverride;
-
-            const isApproved = (isRRSafe && finalRegimeCheck && finalVolCheck && finalSLCheck);
-            if (!isApproved || embeddedScore < 6.5) continue; 
-
-            const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
+            // TẠO MOCK OBJECT CHO TOÁN HỌC SINH TỒN
+            // TÍNH TOÁN MIN NOTIONAL CHUẨN XÁC ĐỂ TRÁNH QUÉT SAI
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
             
-            const appliedRiskPercent = 1.0 * riskMultiplier; 
-            const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
+            const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
+            const appliedRiskPercent = 1.0 * riskMultiplier; // Base risk = 1%
+            let riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
 
+            // Tính SL Distance
             const atrPercentLocal = (atr14 / price) * 100;
-            const minSafeAtr = 0.005;
             const isCompressedLocal = l2 === 'Compression' || bbwRank < 20;
-            const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(atrPercentLocal, minSafeAtr * 100) * 1.5 : atrPercentLocal;
-            const sessionMult = apiMacroRef.current?.sessionMultiplier || 1.0;
-
-            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * sessionMult; 
+            const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(atrPercentLocal, 0.5) * 1.5 : atrPercentLocal;
+            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * (apiMacroRef.current?.sessionMultiplier || 1.0); 
             const sizeSlDistance = riskDiffTech + slippageBuffer;
 
             let slPercentForSize = sizeSlDistance / entry;
@@ -397,21 +311,49 @@ export default function useMatrixScanner({
 
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
             
-            if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
-
-            const actualRiskUSD = positionSizeUSD * slPercentForSize;
-            const maxSurvivalRiskUSD = capitalSafe * 0.05; 
+            let hasMinNotionalErrorLocal = false;
             
-            if (actualRiskUSD > maxSurvivalRiskUSD) continue;
+            // LOGIC CHUẨN: Chỉ phạt khi sàn ÉP tăng size, làm risk vượt 2.5% vốn
+            if (positionSizeUSD > 0 && positionSizeUSD < currentMinNotional) {
+                positionSizeUSD = currentMinNotional; 
+                const forcedRiskUSD = positionSizeUSD * slPercentForSize;
+                if (forcedRiskUSD > capitalSafe * 0.025) {
+                    hasMinNotionalErrorLocal = true;
+                }
+            }
 
-            let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
+            // TẠO MOCK OBJECT CHO TOÁN HỌC SINH TỒN
+            const mockMathCore = {
+                theoreticalRR: simulatedRR.toFixed(2),
+                hasMinNotionalError: hasMinNotionalErrorLocal, // Áp dụng cờ lỗi chuẩn xác
+                liqEstimate: { liqPrice: 0, maxLevForTier: 50 }, 
+                leverageExceedsExchangeCap: false,
+                liqSafetyMargin: 2.0
+            };
 
+            // GỌI TRỌNG TÀI DUY NHẤT (Single Source of Truth)
+            const localSystemScore = TradeValidator.evaluateScore(
+                {...autoData, adx: adxValue, cmf: cmf, rsi: rsi, isBullishSFP: localSfpLong, isBearishSFP: localSfpShort, fundingRate: realFunding, lastClosedVolume: closedVolume, avgVolume20: avgVolume20, currentPrice: price, htfSma200: htfSma200, ema200: {slope: scan50_200.slowSlope}, bbwSlope: bbwSlopeLocal, obi: localObi, isObvBearDivergence: isObvBearDivergenceLocal, isObvBullDivergence: isObvBullDivergenceLocal}, 
+                {...apiMacro, longShortRatio: localLsRatio, takerBuySellRatio: localTakerRatio, tradingSession: apiMacroRef.current.tradingSession}, 
+                mockVectorDetails, dir, currentMvrv, targetSymbol
+            );
+
+            const localGates = TradeValidator.evaluateGates(
+                {...autoData, atr14: atr14, lastClosedVolume: closedVolume, avgVolume20: avgVolume20, bbwRank: bbwRank},
+                {...apiMacro, realSpreadPct: realSpread},
+                mockVectorDetails, mockMathCore, dir, 'FUTURES', entry, sl, localSystemScore, tradeLogs, targetSymbol
+            );
+
+            // NẾU TRỌNG TÀI BẢO "BLOCK" THÌ NEXT LUÔN COIN KHÁC, KHÔNG CHO LÊN BẢNG SCANNER
+            if (!localGates.isApproved) continue;
+
+            // Xử lý Override Tag để gắn màu tím, vàng, hồng... trên Scanner
             let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
             if (overrideTag === '') {
-                if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
-                else if (isSniperOverride) overrideTag = '🎯 SNIPER';
-                else if (isHighRROverride) overrideTag = '🚀 ASYM-RR';
-                else if (isGoldenOverride) overrideTag = '⚡ GOLDEN';
+                if (localGates.isNanoOverride) overrideTag = '🦠 NANO-CAP';
+                else if (localGates.isSniperOverride) overrideTag = '🎯 SNIPER';
+                else if (localGates.isHighRROverride) overrideTag = '🚀 ASYM-RR';
+                else if (localGates.isGoldenOverride) overrideTag = '⚡ GOLDEN';
             }
 
             scanResultsPool.push({

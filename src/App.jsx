@@ -16,7 +16,7 @@ import OrderForm from './components/terminal/OrderForm';
 import LogicGates from './components/terminal/LogicGates';
 import AiAudit from './components/terminal/AiAudit';
 import TradeJournal from './components/terminal/TradeJournal';
-
+import { TradeValidator } from './core/TradeValidator';
 export default function AntiFragileTerminal() {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [intervalTime, setIntervalTime] = useState('15m'); 
@@ -156,49 +156,7 @@ export default function AntiFragileTerminal() {
 
   const systemScore = useMemo(() => {
     if (!autoData || !apiMacro || !vectorRegime) return { score: 0, synergyText: "", penaltyText: "", checks: {}, w: {} };
-    
-    const { l1, l2, l6, isAltcoinBleeding, isAltcoinSeason } = vectorRegime.details;
-    let w = { s1: 2.0, s2: 1.5, s3: 1.5, s4: 1.0, s5: 1.0, s6: 1.5, s7: 1.0, s8: 1.5 }; 
-    if (l1 === 'Range') { w = { s1: 0, s2: 1.5, s3: 4.0, s4: 2.0, s5: 1.5, s6: 1.0, s7: 1.0, s8: 1.0 }; } 
-    else if (l2 === 'Extreme') { w = { s1: 0, s2: 1.0, s3: 3.5, s4: 2.5, s5: 1.5, s6: 2.0, s7: 1.5, s8: 0.5 }; } 
-    else if (l1.includes('Trend') && l2 === 'Expansion') { w = { s1: 3.0, s2: 2.5, s3: 0, s4: 1.0, s5: 1.0, s6: 2.5, s7: 1.0, s8: 2.0 }; }
-
-    const isVolSpikeHUD = autoData.lastClosedVolume > (autoData.avgVolume20 * 2.5);
-
-    const checkS1 = tradeSetup.direction === (l1 === 'Trend Up' ? 'LONG' : 'SHORT');
-    const checkS2 = tradeSetup.direction === 'LONG' ? autoData.cmf > 0.05 : autoData.cmf < -0.05;
-    const checkS3 = tradeSetup.direction === 'LONG' ? autoData.isBullishSFP : autoData.isBearishSFP;
-    const checkS4 = tradeSetup.direction === 'LONG' ? (l1.includes('Trend') ? autoData.rsi < 65 : autoData.rsi < 40) : (l1.includes('Trend') ? autoData.rsi > 35 : autoData.rsi > 60); 
-    const checkS5 = tradeSetup.direction === 'LONG' ? apiMacro.longShortRatio < 1.0 : apiMacro.longShortRatio > 1.0; 
-    const checkS6 = tradeSetup.direction === 'LONG' ? (apiMacro.takerBuySellRatio > 1.05 && !autoData.isObvBearDivergence) : (apiMacro.takerBuySellRatio < 0.95 && !autoData.isObvBullDivergence);
-    
-    // VÁ LỖI ĐỒNG BỘ: Sửa isOiSpiking thành isVolSpikeHUD để khớp với Scanner
-    const checkS7 = tradeSetup.direction === 'LONG' ? (autoData.fundingRate < 0 && isVolSpikeHUD) : (autoData.fundingRate > 0 && isVolSpikeHUD);
-    const checkS8 = tradeSetup.direction === 'LONG' ? (autoData.currentPrice > autoData.htfSma200 && autoData.ema200.slope > 0) : (autoData.currentPrice < autoData.htfSma200 && autoData.ema200.slope < 0);
-
-    let score = 0; if (checkS1) score += w.s1; if (checkS2) score += w.s2; if (checkS3) score += w.s3; if (checkS4) score += w.s4; if (checkS5) score += w.s5; if (checkS6) score += w.s6; if (checkS7) score += w.s7; if (checkS8) score += w.s8;
-
-    let synergyText = "";
-    if (l2 === 'Compression' && checkS2 && checkS6) { score += 2.0; synergyText += "[💣 The Spring: CMF/Taker Accumulation in Compression] "; }
-    if (l2 === 'Extreme' && checkS3 && checkS4) { score += 2.0; synergyText += "[🩸 Capitulation Sweep: SFP + Extreme RSI Divergence] "; }
-    if (isVolSpikeHUD && !checkS5 && checkS6) { score += 1.5; synergyText += "[🪤 Smart Money Trap: Retail piling into liquidity wall] "; }
-    if (tradeSetup.direction === 'LONG' && isAltcoinSeason) { score += 1.0; synergyText += "[🌊 Macro Tailwind: Altcoin Season] "; }
-
-    const isTripleTrendBull = autoData.ema20.slope > 0 && autoData.ema50.slope > 0 && autoData.ema200.slope > 0;
-    const isTripleTrendBear = autoData.ema20.slope < 0 && autoData.ema50.slope < 0 && autoData.ema200.slope < 0;
-    if ((tradeSetup.direction === 'LONG' && isTripleTrendBull) || (tradeSetup.direction === 'SHORT' && isTripleTrendBear)) { score += 1.5; synergyText += "[🚅 Triple-Engine: Hợp lưu gia tốc 3 mốc EMA] "; }
-    if (autoData.adx > 35 && checkS6) { score += 1.5; synergyText += "[🌪️ ADX Squeeze: Taker chủ động xả đạn vào Siêu Trend (ADX>35)] "; }
-    if ((tradeSetup.direction === 'LONG' && mvrvZScore < 1.0 && checkS3) || (tradeSetup.direction === 'SHORT' && mvrvZScore > 2.5 && checkS3)) { score += 1.5; synergyText += "[💎 Deep Value Sweep: Quét SFP tại Vùng định giá Vĩ mô] "; }
-    
-    if (l2 === 'Compression' && autoData.bbwSlope > 10) { score += 2.0; synergyText += "[🧨 Volatility Expansion: Gia tốc Nén BBW ngóc đầu] "; }
-    if (l2 === 'Compression' && ((tradeSetup.direction === 'LONG' && autoData.obi > 0.7 && checkS6) || (tradeSetup.direction === 'SHORT' && autoData.obi < 0.3 && checkS6))) { score += 2.0; synergyText += "[🐳 Whale Accumulation: OBI Imbalance tại vùng nén] "; }
-
-    let penaltyText = "";
-    if (tradeSetup.direction === 'LONG' && isAltcoinBleeding) { score -= 2.0; penaltyText += "[-2.0 Macro Gravity: Altcoins are bleeding to BTC] "; }
-    if (tradeSetup.direction === 'LONG' && l6.includes('Overvaluation')) { score -= 1.5; penaltyText += "[-1.5 MVRV Gravity: Buying into Overvaluation] "; }
-    if (tradeSetup.direction === 'SHORT' && l6.includes('Undervaluation')) { score -= 1.5; penaltyText += "[-1.5 MVRV Gravity: Shorting the On-chain Bottom] "; }
-
-    return { score, synergyText, penaltyText, checks: { checkS1, checkS2, checkS3, checkS4, checkS5, checkS6, checkS7, checkS8 }, w };
+    return TradeValidator.evaluateScore(autoData, apiMacro, vectorRegime.details, tradeSetup.direction, mvrvZScore, symbol);
   }, [autoData, apiMacro, vectorRegime, tradeSetup.direction, mvrvZScore, symbol]);
 
   const mathCore = useMemo(() => {
@@ -237,15 +195,23 @@ export default function AntiFragileTerminal() {
     let positionSizeUSD = riskAmountUSD / slPercentForSize; 
     if (!isFinite(positionSizeUSD) || isNaN(positionSizeUSD)) positionSizeUSD = 0;
 
-    const targetMinThreshold = dynamicMinNotionals[symbol] || 5.0; 
-    let hasMinNotionalError = false; let isSizeForcedByExchange = false;
-    
-    if (positionSizeUSD > 0 && positionSizeUSD < targetMinThreshold) {
-        positionSizeUSD = targetMinThreshold; isSizeForcedByExchange = true;
-        const newRiskUSD = positionSizeUSD * slPercentForSize; riskAmountUSD = newRiskUSD;
-        if (newRiskUSD > capitalSafe * 0.05) hasMinNotionalError = true;
-    }
-
+    // SỬA CƠ CHẾ CHẶN RISK KHI BỊ SÀN ÉP SIZE (mathCore)
+      
+      const targetMinThreshold = dynamicMinNotionals[symbol] || 5.0; 
+      let hasMinNotionalError = false; let isSizeForcedByExchange = false;
+      
+      if (positionSizeUSD > 0 && positionSizeUSD < targetMinThreshold) {
+          positionSizeUSD = targetMinThreshold; 
+          isSizeForcedByExchange = true;
+          const newRiskUSD = positionSizeUSD * slPercentForSize; 
+          riskAmountUSD = newRiskUSD;
+          
+          // HẠ NGƯỠNG CHẶN CỨNG TỪ 5% XUỐNG 2.5% VỐN
+          // Nếu sàn ép size làm risk vượt quá 2.5% vốn, khóa mẹnh lập tức.
+          if (newRiskUSD > capitalSafe * 0.025) {
+              hasMinNotionalError = true;
+          }
+      }
     let suggestedLeverage = 1; let marginUsedUSD = positionSizeUSD;
     if (tradeSetup.tradeType === 'FUTURES') {
        let minRequiredLev = positionSizeUSD / (capitalSafe * 0.9 || 1);
@@ -276,62 +242,11 @@ export default function AntiFragileTerminal() {
 
   const logicGates = useMemo(() => {
     if (!autoData || !mathCore || !vectorRegime) return { hardGates: [], softGates: [], softScore: 0, isApproved: false };
-    
-    const { l1, l2, l3 } = vectorRegime.details;
-    const { score, synergyText, penaltyText, checks, w } = systemScore;
-    const requiredRR = autoData.bbwRank > 80 ? 1.5 : 1.2;
-
-    const hardGates = [
-      { id: 'h1', passed: apiMacro.realSpreadPct < 0.2 && tradeSetup.slTech > 0 && Math.abs(tradeSetup.entry - tradeSetup.slTech) > (autoData.atr14 * 0.5), text: `CHỐNG NHIỄU: Khoảng cách SL kỹ thuật > 0.5 ATR (${(autoData.atr14 * 0.5).toFixed(2)}$)` },
-      { id: 'h2', passed: parseFloat(mathCore.theoreticalRR) >= requiredRR, text: `KỲ VỌNG EV (Tự thích nghi): Tỷ lệ R:R ròng >= ${requiredRR} (BBW Rank: P${autoData.bbwRank.toFixed(0)})` },
-      { id: 'h3_1', passed: l1 !== 'Transition', text: `REGIME LOCK: Xu hướng rõ ràng (L1 không nằm trong pha Chuyển giao - Transition).` },
-      { id: 'h3_2', passed: l2 !== 'Compression', text: `VOLATILITY LOCK: Không giao dịch trong vùng Nén thanh khoản (L2 không phải Compression).` },
-      { id: 'h4', passed: tradeSetup.tradeType === 'SPOT' || (mathCore.liqEstimate && !mathCore.leverageExceedsExchangeCap && mathCore.liqSafetyMargin >= 1.3), text: `ĐỆM THANH LÝ: Liq Price cách xa SL Thực tế > 30% (Thực tế: ${mathCore.liqEstimate ? (mathCore.liqSafetyMargin*100).toFixed(0)+'%' : 'N/A'})` },
-      { id: 'h5', passed: !mathCore.hasMinNotionalError, text: `MIN NOTIONAL: Lệnh $${mathCore.positionSizeUSD} (Risk thực bị ép: $${mathCore.riskAmountUSD} <= 5% Vốn).` },
-      { id: 'h6', passed: autoData.lastClosedVolume >= (autoData.avgVolume20 * 0.4), text: `VOL DEADZONE: Thanh khoản nến đóng > 40% trung bình 20 nến (Vol thực: ${autoData.lastClosedVolume.toFixed(2)}).` }
-    ];
-
-    const softGates = [
-      { id: 's1', passed: checks.checkS1, weight: w.s1, text: `CẤU TRÚC L1 (+${w.s1}): Thuận xu hướng ${l1}.` },
-      { id: 's2', passed: checks.checkS2, weight: w.s2, text: `DÒNG TIỀN CMF (+${w.s2}): Áp lực Quote Volume bơm/xả hỗ trợ.` },
-      { id: 's3', passed: checks.checkS3, weight: w.s3, text: `SĂN THANH KHOẢN (+${w.s3}): Cấu trúc Swing Failure Pattern hợp lệ.` },
-      { id: 's4', passed: checks.checkS4, weight: w.s4, text: `ĐỘNG LƯỢNG (+${w.s4}): Động lượng RSI bảo vệ (Không rướn).` },
-      { id: 's5', passed: checks.checkS5, weight: w.s5, text: `TÂM LÝ (+${w.s5}): Đi ngược Đám đông (Account L/S Ratio).` },
-      { id: 's6', passed: checks.checkS6, weight: w.s6, text: `ORDER FLOW (+${w.s6}): Taker Volume xả/gom & Phân kỳ OBV.` },
-      { id: 's7', passed: checks.checkS7, weight: w.s7, text: `SQUEEZE (+${w.s7}): Tận dụng OI Spiking & Funding Rate nghịch.` },
-      { id: 's8', passed: checks.checkS8, weight: w.s8, text: `HỢP LƯU VĨ MÔ (+${w.s8}): Thuận sóng dài hạn (Giá & Slope SMA200).` }
-    ];
-
-    if (synergyText) softGates.push({ id: 's_syn', passed: true, weight: 0, text: `🔥 SYNERGY BONUS: ${synergyText}` });
-    if (penaltyText) softGates.push({ id: 's_pen', passed: false, weight: 0, text: `⚠️ MACRO PENALTY: ${penaltyText}` });
-
-    const hardPassed = hardGates.every(g => g.passed);
-    const failedGates = hardGates.filter(g => !g.passed);
-    const isOnlyRegimeFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h3_2');
-    const isSafeFromKnife = tradeSetup.direction === 'LONG' ? (autoData.cmf > 0.15 && autoData.rsi > 35) : (autoData.cmf < -0.15 && autoData.rsi < 65);
-    const isGoldenOverride = isOnlyRegimeFailed && (score >= 8.5) && synergyText !== "" && isSafeFromKnife;
-    
-    const isOnlySLFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h1');
-    const isSniperOverride = isOnlySLFailed && checks.checkS3 && score >= 7.0;
-
-    const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
-    const isHighRROverride = isOnlyVolFailed && parseFloat(mathCore.theoreticalRR) >= 2.5 && score >= 7.0;
-
-    // VÁ LỖI ĐỒNG BỘ: Không bắt buộc isOiSpiking cho NanoCap nữa để khớp Scanner
-    const isNanoCapSniper = 
-      parseFloat(mathCore.theoreticalRR) >= 2.5 && 
-      (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (tradeSetup.direction === 'LONG' && autoData.obi > 0.7) || (tradeSetup.direction === 'SHORT' && autoData.obi < 0.3)) &&
-      !mathCore.hasMinNotionalError && score >= 7.0;
-
-    const isNanoOverride = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h6') && isNanoCapSniper;
-
-    const isApproved = (hardPassed || isGoldenOverride || isSniperOverride || isHighRROverride || isNanoOverride) && (score >= 6.5); 
-    
-    return { 
-      hardGates, softGates, softScore: score, isApproved, 
-      isGoldenOverride, isSniperOverride, isHighRROverride, isNanoOverride
-    };
-  }, [autoData, mathCore, tradeSetup, apiMacro, vectorRegime, symbol, systemScore]);
+    return TradeValidator.evaluateGates(
+       autoData, apiMacro, vectorRegime.details, mathCore, tradeSetup.direction, 
+       tradeSetup.tradeType, tradeSetup.entry, tradeSetup.slTech, systemScore, tradeLogs, symbol
+    );
+  }, [autoData, mathCore, tradeSetup, apiMacro, vectorRegime, symbol, systemScore, tradeLogs]);
 
   const runGeminiAnalysis = async () => {
     if (geminiCooldown > 0 || !autoData || !mathCore || !vectorRegime) return;

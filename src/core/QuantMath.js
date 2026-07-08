@@ -237,7 +237,7 @@ const QuantMath = {
 
   dynamicAsymmetricTargets: (bbwRank, bbwSlope, isSfp, atrPercent, obi, direction) => {
       // VÁ LỖI TOÁN HỌC: Adaptive RR Base để không bao giờ rớt isRRSafe trong Scanner
-      const requiredRR = bbwRank > 80 ? 1.5 : 1.2;
+      const requiredRR = bbwRank > 80 ? 2.0 : 1.8;
       let slMult = 1.5; 
       let tpMult = slMult * (requiredRR + 0.3); // Tự động nới TP xa ra để đền bù phí giao dịch
       let strategyName = "TIÊU CHUẨN (ADAPTIVE)";
