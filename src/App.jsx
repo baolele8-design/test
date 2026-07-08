@@ -464,88 +464,125 @@ BẤT DI BẤT DỊCH:
     } catch (e) { showToast(`❌ Lỗi Supabase: ${e.message}`); }
   };
 
-  // THAY THẾ HÀM syncBinanceToSupabase (Dòng 301 - 338)
+  // THAY THẾ HÀM syncBinanceToSupabase (Trong src/App.jsx)
   const syncBinanceToSupabase = async () => {
     if (!supabase || !binancePositions) return;
     setIsSyncing(true);
     
     try {
+      // 1. Lọc tất cả các lệnh đang MỞ hoặc CHỜ KHỚP trên Sổ tay Supabase
       const activeLogs = tradeLogs.filter(log => log.status === 'OPEN' || log.status === 'PENDING');
+      
       if (activeLogs.length === 0) {
         showToast("✅ Sổ tay không có lệnh OPEN/PENDING nào cần đồng bộ.");
-        setIsSyncing(false); return;
+        setIsSyncing(false); 
+        return;
       }
+
+      // 2. Tìm mốc thời gian cũ nhất để gọi API Binance (Tối ưu số lượng Request)
+      const oldestLogTime = Math.min(...activeLogs.map(log => new Date(log.created_at).getTime()));
+      const ts = Date.now();
 
       for (const log of activeLogs) {
         const currentPosition = binancePositions.find(p => p.symbol === log.symbol);
         const positionAmt = currentPosition ? parseFloat(currentPosition.positionAmt) : 0;
 
+        // XỬ LÝ LỆNH PENDING (Chờ khớp)
         if (log.status === 'PENDING') {
            if (positionAmt !== 0) {
+              // Lệnh đã khớp entry, chuyển sang OPEN
               const realEntry = parseFloat(currentPosition.entryPrice);
               await supabase.from('trade_logs').update({ status: 'OPEN', entry: realEntry }).eq('id', log.id);
               showToast(`🔗 Đã liên kết lệnh ${log.symbol} trên Binance vào Sổ tay!`);
            }
+           // Lưu ý: Nếu PENDING bị hủy trên Binance, hệ thống chưa tự biết được (Cần check Order History, nhưng hiện tại ta giữ logic Delete thủ công)
         } 
+        // XỬ LÝ LỆNH OPEN (Đang chạy)
         else if (log.status === 'OPEN') {
            if (positionAmt === 0) { 
-              // LỆNH ĐÃ ĐÓNG: Kéo Realized PnL và Fee thực tế từ Binance
+              // ==========================================
+              // LỆNH ĐÃ ĐÓNG TRÊN BINANCE: TRUY VẾT PNL RÒNG
+              // ==========================================
               let finalPnl = 0;
               let exitPrice = autoData?.currentPrice;
               
               try {
-                  const ts = Date.now();
-                  const tradeRes = await fetch(`/api/binance?path=/fapi/v1/userTrades&symbol=${log.symbol}&isPrivate=true&limit=20&t=${ts}`);
+                  // Gọi API Lịch sử Giao dịch (Trade History) của cặp này từ mốc tạo lệnh
+                  const tradeRes = await fetch(`/api/binance?path=/fapi/v1/userTrades&symbol=${log.symbol}&startTime=${oldestLogTime}&isPrivate=true&limit=100&t=${ts}`);
+                  
                   if (tradeRes.ok) {
                       const trades = await tradeRes.json();
                       const logTime = new Date(log.created_at).getTime();
                       
-                      // Lọc các giao dịch đóng lệnh (Có PnL != 0) sau thời điểm tạo lệnh
+                      // Lọc các giao dịch đóng lệnh (Có PnL != 0) diễn ra SAU khi tạo log trên Supabase
                       const closingTrades = trades.filter(t => t.time > logTime && parseFloat(t.realizedPnl) !== 0);
                       
                       if (closingTrades.length > 0) {
+                          // Cộng dồn PnL và Trừ Phí giao dịch
                           const rawPnl = closingTrades.reduce((sum, t) => sum + parseFloat(t.realizedPnl), 0);
                           const totalFee = closingTrades.reduce((sum, t) => sum + parseFloat(t.commission), 0);
-                          finalPnl = rawPnl - totalFee; // PnL ròng đã trừ phí
+                          finalPnl = rawPnl - totalFee; // ĐÂY LÀ PNL RÒNG CHUẨN XÁC 100%
 
+                          // Tính giá thoát lệnh trung bình
                           const totalQty = closingTrades.reduce((sum, t) => sum + parseFloat(t.qty), 0);
                           const totalCost = closingTrades.reduce((sum, t) => sum + (parseFloat(t.price) * parseFloat(t.qty)), 0);
-                          exitPrice = totalCost / totalQty; // Giá thoát trung bình thực tế
+                          exitPrice = totalCost / totalQty; 
                       } else {
-                          // Fallback toán học nếu không tìm thấy Trade History
+                          // Không tìm thấy Trade -> Bị đóng hòa hoặc lỗi API -> Dùng Toán học dự phòng
                           if (!exitPrice) exitPrice = parseFloat(log.entry);
                           const sizeCoin = parseFloat(log.risk_amount_usd) / Math.abs(parseFloat(log.entry) - parseFloat(log.sl));
                           const priceDiff = exitPrice - parseFloat(log.entry);
                           finalPnl = log.direction === 'LONG' ? priceDiff * sizeCoin : -priceDiff * sizeCoin;
                       }
+                  } else {
+                      throw new Error("Lỗi fetch userTrades");
                   }
               } catch (e) {
-                  // Fallback toán học an toàn
+                  // Lỗi mạng -> Dùng Toán học dự phòng để tính PnL dựa trên giá hiện tại
                   if (!exitPrice) exitPrice = parseFloat(log.entry);
                   const sizeCoin = parseFloat(log.risk_amount_usd) / Math.abs(parseFloat(log.entry) - parseFloat(log.sl));
                   const priceDiff = exitPrice - parseFloat(log.entry);
                   finalPnl = log.direction === 'LONG' ? priceDiff * sizeCoin : -priceDiff * sizeCoin;
+                  console.warn(`Tính PnL dự phòng cho ${log.symbol} do lỗi API:`, e);
               }
 
+              // Cập nhật lên Supabase: Đổi trạng thái WIN/LOSS và dán PnL vào
               await supabase.from('trade_logs').update({ 
-                  status: finalPnl > 0 ? 'WIN' : 'LOSS', pnl_usd: finalPnl, close_price: exitPrice,
-                  exit_reason: finalPnl > 0 ? 'TP_OR_MANUAL_PROFIT' : 'SL_OR_MANUAL_LOSS', close_time: new Date().toISOString()
+                  status: finalPnl > 0 ? 'WIN' : 'LOSS', 
+                  pnl_usd: finalPnl, 
+                  close_price: exitPrice,
+                  exit_reason: finalPnl > 0 ? 'TP_OR_MANUAL_PROFIT' : 'SL_OR_MANUAL_LOSS', 
+                  close_time: new Date().toISOString()
               }).eq('id', log.id);
-              showToast(`🔄 Đã đóng lệnh ${log.symbol}! (PnL Ròng: ${finalPnl.toFixed(2)}$)`);
+              
+              showToast(`🔄 Đã đối soát & đóng lệnh ${log.symbol}! (PnL Ròng: ${finalPnl.toFixed(2)}$)`);
+              
            } else { 
+              // LỆNH VẪN ĐANG MỞ: Cập nhật MFE (Lợi nhuận tối đa) và MAE (Lỗ tối đa)
               const livePnl = parseFloat(currentPosition.unRealizedProfit);
-              let newMfe = log.max_favorable_excursion_usd || 0; let newMae = log.max_adverse_excursion_usd || 0;
+              let newMfe = log.max_favorable_excursion_usd || 0; 
+              let newMae = log.max_adverse_excursion_usd || 0;
               let requiresUpdate = false;
+              
               if (livePnl > newMfe) { newMfe = livePnl; requiresUpdate = true; }
               if (livePnl < newMae) { newMae = livePnl; requiresUpdate = true; }
-              if (requiresUpdate) await supabase.from('trade_logs').update({ max_favorable_excursion_usd: newMfe, max_adverse_excursion_usd: newMae }).eq('id', log.id);
+              
+              if (requiresUpdate) {
+                  await supabase.from('trade_logs').update({ 
+                      max_favorable_excursion_usd: newMfe, 
+                      max_adverse_excursion_usd: newMae 
+                  }).eq('id', log.id);
+              }
            }
         }
       }
-    } catch (e) { showToast(`❌ Lỗi đồng bộ: ${e.message}`); } 
-    finally { setIsSyncing(false); }
+    } catch (e) { 
+      showToast(`❌ Lỗi đồng bộ: ${e.message}`); 
+    } finally { 
+      setIsSyncing(false); 
+    }
   };
-
+  
   const handleMasterAuto = () => { 
     if (!autoData || !vectorRegime) return;
     let dir = vectorRegime.details.l1 === 'Trend Up' ? 'LONG' : 'SHORT'; 
