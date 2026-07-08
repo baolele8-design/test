@@ -45,7 +45,6 @@ export const TradeValidator = {
     if (direction === 'LONG' && l6.includes('Overvaluation')) { score -= 1.5; penaltyText += "[-1.5 MVRV Overvalue] "; }
     if (direction === 'SHORT' && l6.includes('Undervaluation')) { score -= 1.5; penaltyText += "[-1.5 MVRV Undervalue] "; }
     
-    // NÂNG CẤP ADX / NY SESSION
     if (autoData.adx > 55) { score -= 1.5; penaltyText += "[-1.5 ADX Exhaustion] "; }
     if (apiMacro.tradingSession === 'NEW_YORK' && l1.includes('Trend')) { score -= 1.5; penaltyText += "[-1.5 NY Session Trap] "; }
 
@@ -58,7 +57,6 @@ export const TradeValidator = {
     const { score, synergyText, penaltyText, checks, w } = systemScore;
     const requiredRR = autoData.bbwRank > 80 ? 2.0 : 1.8;
 
-    // KIỂM TRA TRÍ NHỚ COOLDOWN (Chống nhồi lệnh mù quáng)
     const recentLossSameDirection = tradeLogs && tradeLogs.some(log => 
         log.symbol === symbol && 
         log.direction === direction && 
@@ -68,7 +66,7 @@ export const TradeValidator = {
 
     const hardGates = [
       { id: 'h_cd', passed: !recentLossSameDirection, text: `COOLDOWN: Không nhồi lệnh cùng hướng ${direction} sau khi bị SL trong 2H qua.` },
-      { id: 'h1', passed: apiMacro.realSpreadPct < 0.2 && slTech > 0 && Math.abs(entry - slTech) > (autoData.atr14 * 0.5), text: `CHỐNG NHIỄU: Khoảng cách SL > 0.5 ATR` },
+      { id: 'h1', passed: apiMacro.realSpreadPct < 0.2 && slTech > 0 && Math.abs(entry - slTech) > (autoData.atr14 * 0.4), text: `CHỐNG NHIỄU: Khoảng cách SL > 0.4 ATR` },
       { id: 'h2', passed: parseFloat(mathCore.theoreticalRR) >= requiredRR, text: `KỲ VỌNG EV: R:R ròng >= ${requiredRR}` },
       { id: 'h3_1', passed: l1 !== 'Transition', text: `REGIME LOCK: Xu hướng rõ ràng` },
       { id: 'h3_2', passed: l2 !== 'Compression', text: `VOLATILITY: Không giao dịch trong vùng Nén` },
@@ -94,21 +92,27 @@ export const TradeValidator = {
     const hardPassed = hardGates.every(g => g.passed);
     const failedGates = hardGates.filter(g => !g.passed);
 
-    // XỬ LÝ CÁC OVERRIDE (BẼ KHÓA GATES)
     const isOnlyRegimeFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h3_2');
     const isSafeFromKnife = direction === 'LONG' ? (autoData.cmf > 0.15 && autoData.rsi > 35) : (autoData.cmf < -0.15 && autoData.rsi < 65);
-    const isGoldenOverride = isOnlyRegimeFailed && (score >= 8.5) && synergyText !== "" && isSafeFromKnife;
+    const isGoldenOverride = isOnlyRegimeFailed && synergyText !== "" && isSafeFromKnife;
     
     const isOnlySLFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h1');
-    const isSniperOverride = isOnlySLFailed && checks.checkS3 && score >= 7.0;
+    const isSniperOverride = isOnlySLFailed && checks.checkS3;
 
-    const isOnlyVolFailed = failedGates.length > 0 && failedGates.every(g => g.id === 'h6');
-    const isHighRROverride = isOnlyVolFailed && parseFloat(mathCore.theoreticalRR) >= 2.5 && score >= 7.0;
+    // BẢN VÁ: R:R >= 2.5 LÀ VUA. 
+    // Hệ thống sẽ cho phép duyệt lệnh miễn là KHÔNG vi phạm Min Notional (Rủi ro cháy tài khoản).
+    const isHighRROverride = parseFloat(mathCore.theoreticalRR) >= 2.5 && !mathCore.hasMinNotionalError && !failedGates.some(g => g.id === 'h_cd');
 
-    const isNanoCapSniper = parseFloat(mathCore.theoreticalRR) >= 2.5 && (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (direction === 'LONG' && autoData.obi > 0.7) || (direction === 'SHORT' && autoData.obi < 0.3)) && !mathCore.hasMinNotionalError && score >= 7.0;
+    const isNanoCapSniper = parseFloat(mathCore.theoreticalRR) >= 2.5 && (l2 === 'Compression' || l3.includes('SFP') || l3.includes('Squeeze Imminent') || (direction === 'LONG' && autoData.obi > 0.7) || (direction === 'SHORT' && autoData.obi < 0.3)) && !mathCore.hasMinNotionalError;
     const isNanoOverride = failedGates.length > 0 && failedGates.every(g => g.id === 'h3_1' || g.id === 'h6') && isNanoCapSniper;
 
-    const isApproved = (hardPassed || isGoldenOverride || isSniperOverride || isHighRROverride || isNanoOverride) && (score >= 6.5); 
+    // BẢN VÁ DẤU NGOẶC ĐƠN QUAN TRỌNG NHẤT: Đưa điều kiện Score vào kẹp chung với từng Override
+    // Bây giờ, nếu lệnh có R:R siêu ngạch (>=2.5), nó chỉ cần Score đạt 4.5 là Pass!
+    const isApproved = (hardPassed && score >= 6.5) || 
+                       (isGoldenOverride && score >= 7.0) || 
+                       (isSniperOverride && score >= 6.0) || 
+                       (isHighRROverride && score >= 4.5) || 
+                       (isNanoOverride && score >= 4.5); 
     
     return { hardGates, softGates, softScore: score, isApproved, isGoldenOverride, isSniperOverride, isHighRROverride, isNanoOverride };
   }
