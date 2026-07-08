@@ -1,6 +1,6 @@
 // FILE: src/components/terminal/OrderForm.jsx
 import React, { useState } from 'react';
-import { Zap, TrendingUp, TrendingDown, BarChart3, Lock, Rocket, Loader2 } from 'lucide-react';
+import { Zap, TrendingUp, TrendingDown, BarChart3, Lock, Rocket, Loader2, Target } from 'lucide-react'; // <-- ĐÃ THÊM IMPORT TARGET VÀO ĐÂY
 
 export default function OrderForm({
   autoData, tradeSetup, setTradeSetup, liveCapital, mathCore, tradeStats,
@@ -192,7 +192,6 @@ export default function OrderForm({
           </div>
 
           <div className="space-y-3 mt-2">
-            {/* Giữ nguyên các phần Khối lượng (Size USD) bên dưới... */}
             <div className="flex justify-between items-end border-b border-slate-800 pb-1.5">
               <span className="text-[10px] font-bold text-slate-500">Khối lượng (Size USD):</span>
               <span className={`font-mono text-xs font-black ${mathCore.hasMinNotionalError ? 'text-red-500 animate-pulse' : mathCore.isSizeForcedByExchange ? 'text-amber-400' : 'text-white'}`}>
