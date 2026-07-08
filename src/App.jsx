@@ -411,21 +411,15 @@ BẤT DI BẤT DỊCH:
     setIsAnalyzing(false);
   };
 
-  // THAY THẾ HÀM handleSaveTradeLog (Dòng 265 - 299)
   const handleSaveTradeLog = async () => {
     if (!supabase) return;
     try {
-      // ÉP KIỂU VÀ NÉN GỌN DỮ LIỆU: Loại bỏ mảng Arrays để không làm tràn Data JSON của Supabase
+      // 1. TẠO JSON SIÊU NHẸ: Chỉ lưu những thông số râu ria không cần Query vào Database
       const compressedAutoData = {
           currentPrice: autoData.currentPrice,
-          atr14: autoData.atr14,
-          adx: autoData.adx,
-          rsi: autoData.rsi,
-          cmf: autoData.cmf,
-          bbwRank: autoData.bbwRank,
-          obi: autoData.obi,
-          fundingRate: autoData.fundingRate,
-          oiDelta: autoData.oiDelta,
+          atrPercent: autoData.atrPercent,
+          atrRank: autoData.atrRank,
+          bbw: autoData.bbw,
           isOiSpiking: autoData.isOiSpiking,
           isBullishSFP: autoData.isBullishSFP,
           isBearishSFP: autoData.isBearishSFP,
@@ -437,25 +431,57 @@ BẤT DI BẤT DỊCH:
 
       const fullSystemContext = {
          vector_details: vectorRegime.details,
-         auto_data: compressedAutoData,
-         math_core: mathCore,
+         auto_data: compressedAutoData, // Đã gọt sạch RSI, ADX, CMF, Funding... vì sẽ ném ra cột riêng
+         math_core: {
+            suggestedLeverage: mathCore.suggestedLeverage,
+            liqEstimate: mathCore.liqEstimate,
+            kellyPct: mathCore.kellyPct,
+            trueEVValue: mathCore.trueEVValue
+         },
          api_macro: apiMacro
       };
 
+      // 2. PAYLOAD CẤP 1 (FLATTENED COLUMNS): Phục vụ Query Database siêu tốc
       const payload = {
-        symbol, interval: intervalTime, type: tradeSetup.tradeType, direction: tradeSetup.direction,
-        entry: parseFloat(tradeSetup.entry), sl: parseFloat(tradeSetup.slTech), tp_1_price: parseFloat(tradeSetup.tp1), tp_2_price: null, 
-        risk_amount_usd: Math.max(0.1, parseFloat(mathCore.riskAmountUSD)), rr: parseFloat(mathCore.theoreticalRR),
-        adx: parseFloat(autoData.adx), atr: parseFloat(autoData.atr14), funding_rate: parseFloat(autoData.fundingRate),
-        oi_spiking: autoData.isOiSpiking, fgi: parseFloat(apiMacro.fgiValue),
-        trend_sma200: autoData.currentPrice > autoData.htfSma200 ? 'UP' : 'DOWN', leverage: parseFloat(mathCore.suggestedLeverage), 
+        symbol, 
+        interval: intervalTime, 
+        type: tradeSetup.tradeType, 
+        direction: tradeSetup.direction,
+        entry: parseFloat(tradeSetup.entry), 
+        sl: parseFloat(tradeSetup.slTech), 
+        tp_1_price: parseFloat(tradeSetup.tp1), 
+        tp_2_price: null, 
+        risk_amount_usd: Math.max(0.1, parseFloat(mathCore.riskAmountUSD)), 
+        position_size_usd: parseFloat(mathCore.positionSizeUSD), // TRƯỜNG MỚI ĐƯỢC TÁCH
+        rr: parseFloat(mathCore.theoreticalRR),
+        
+        // --- CHỈ BÁO KỸ THUẬT RÃ PHẲNG ---
+        adx: parseFloat(autoData.adx), 
+        atr: parseFloat(autoData.atr14), 
+        rsi: parseFloat(autoData.rsi), // TRƯỜNG MỚI ĐƯỢC TÁCH
+        cmf: parseFloat(autoData.cmf), 
+        bbw_rank: parseInt(autoData.bbwRank), 
+        oi_delta: parseFloat(autoData.oiDelta || 0), 
+        funding_rate: parseFloat(autoData.fundingRate),
+        funding_slope: parseFloat(autoData.fundingSlope || 0), 
+        taker_ratio: parseFloat(apiMacro.takerBuySellRatio || 1), 
+        btc_dom_slope: parseFloat(autoData.btcDomSlope || 0), // TRƯỜNG MỚI ĐƯỢC TÁCH
+        mvrv: parseFloat(mvrvZScore), 
+        fgi: parseInt(apiMacro.fgiValue),
+        // ---------------------------------
+
+        trend_sma200: autoData.currentPrice > autoData.htfSma200 ? 'UP' : 'DOWN', 
+        leverage: parseFloat(mathCore.suggestedLeverage), 
         status: 'PENDING', 
-        pnl_usd: 0, session: apiMacro.tradingSession, market_regime: vectorRegime.vector.join(' | '), bbw_rank: parseFloat(autoData.bbwRank), 
-        cmf: parseFloat(autoData.cmf), ai_advice: aiAnalysis ? aiAnalysis.substring(0, 3000) : null, mvrv: parseFloat(mvrvZScore), 
-        oi_delta: parseFloat(autoData.oiDelta || 0), taker_ratio: parseFloat(apiMacro.takerBuySellRatio || 1), 
-        funding_slope: parseFloat(autoData.fundingSlope || 0), soft_score: parseFloat(logicGates.softScore), 
-        holding_cycles: 1, applied_risk_pct: parseFloat(mathCore.appliedRiskPercent),
-        meta_data: fullSystemContext 
+        pnl_usd: 0, 
+        session: apiMacro.tradingSession, 
+        market_regime: vectorRegime.vector.join(' | '), 
+        ai_advice: aiAnalysis ? aiAnalysis.substring(0, 3000) : null, 
+        soft_score: parseFloat(logicGates.softScore), 
+        holding_cycles: 1, 
+        applied_risk_pct: parseFloat(mathCore.appliedRiskPercent),
+        
+        meta_data: fullSystemContext // JSON Rác đã được nén tối đa
       };
       
       const { error } = await supabase.from('trade_logs').insert([payload]);
