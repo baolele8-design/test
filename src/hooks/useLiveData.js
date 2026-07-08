@@ -65,6 +65,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
         else if (intervalTime === '1d') mtfInterval = '1w';
 
         const ts = Date.now();
+        // Để đưa tải Vercel về 0, bạn có thể cân nhắc trỏ 3 fetch này về Localhost giống MatrixScanner trong tương lai
         const [resLtf, resMtf, resHtf] = await Promise.all([
             fetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${intervalTime}&limit=250&t=${ts}`),
             fetch(`/api/binance?path=/fapi/v1/klines&symbol=${symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
@@ -86,7 +87,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
     return () => { isMounted = false; };
   }, [symbol, intervalTime]);
 
-  // HÀM BÓP CÒ: TÁI TÍNH TOÁN LÕI LƯỢNG TỬ
+  // HÀM BÓP CÒ: TÁI TÍNH TOÁN LÕI LƯỢNG TỬ (REAL DATA 100%)
   const recalculateCoreEngine = useCallback(() => {
     const buffer = dataBuffer.current;
     if (!buffer.ltf.length || !buffer.mtf.length || !buffer.htf.length) return;
@@ -138,6 +139,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
     const isObvBearDivergence = (currentPrice > htfSma200) && (obvArray[obvArray.length-1] < obvEma20);
     const isObvBullDivergence = (currentPrice < htfSma200) && (obvArray[obvArray.length-1] > obvEma20);
 
+    // XÓA BỎ TOÀN BỘ PLACEHOLDER "MA"
     setAutoData({
         currentPrice, atr14, atrPercent: currentPrice > 0 ? (atr14 / currentPrice) * 100 : 0, atrRank,
         adx: adxValue, htfSma200, rsi: rsiValue, bbwRank, bbw: bollinger20.bbw, cmf: cmfValue,
@@ -239,7 +241,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
             recalculateCoreEngine();
             isDirty.current = false;
         }
-    }, 500); // 500ms hãm tốc
+    }, 500); 
     return () => clearInterval(tickRate);
   }, [loading, recalculateCoreEngine]);
 
