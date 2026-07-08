@@ -58,7 +58,8 @@ export default function AntiFragileTerminal() {
     scannedTopSetups, isScanningBackground, sonarEnabled, setSonarEnabled 
   } = useMatrixScanner({ 
     liveCapital, autoData, mvrvZScore, tradeFees, apiMacro, showToast,
-    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth
+    dynamicPool, dynamicMinNotionals, setSystemHealth, systemHealth,
+    tradeLogs // <-- BẢN VÁ: CẦN THÊM BIẾN NÀY VÀO ĐỂ KHÔNG BỊ TRỐNG H_CD GATE
   });
 
   useEffect(() => {

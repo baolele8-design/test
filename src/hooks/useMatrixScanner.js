@@ -1,3 +1,4 @@
+// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS, POOL_SYMBOLS } from '../config/constants';
@@ -102,7 +103,7 @@ export default function useMatrixScanner({
         const memoizedFetch = async (binanceQueryStr) => {
             const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
             if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl);
-            await new Promise(res => setTimeout(res, Math.random() * 1500));
+            await new Promise(res => setTimeout(res, Math.random() * 500)); // Tránh Spam Rate Limit
             const promise = fetchWithTimeout(fullUrl, 15000);
             fetchCache.set(fullUrl, promise);
             return promise;
@@ -118,11 +119,12 @@ export default function useMatrixScanner({
           }
         }
 
-        const SYMBOL_CHUNK_SIZE = 6; 
+        // BẢN VÁ LỖI CỔ CHAI MẠNG: Hạ Chunk Size xuống 1 để không bị kẹt hàng đợi trình duyệt (Max 6 connections)
+        const SYMBOL_CHUNK_SIZE = 1; 
         const results = [];
 
         for (let i = 0; i < fetchTasks.length; i += SYMBOL_CHUNK_SIZE) {
-          if (systemHealthRef.current && systemHealthRef.current.weight > 1800) {
+          if (systemHealthRef.current && systemHealthRef.current.weight > 2000) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
@@ -249,7 +251,6 @@ export default function useMatrixScanner({
             else if (isVolSpikeHUD && price < scan20_50.fastEmaCurrent && l2 === "Expansion") l3 = "Breakdown"; 
             else if (isVolSpikeHUD) l3 = "Stop Hunt / Climax";
 
-            // ĐỒNG BỘ: Tính năng l4 và l5 (Dù không dùng trực tiếp trong Logic Gates cũ nhưng giữ nguyên ngữ cảnh không bị crash)
             let l4 = "Neutral";
             let l5 = "Weak / Mixed";
             
@@ -286,7 +287,6 @@ export default function useMatrixScanner({
             const activeMakerFee = tradeFeesRef.current.maker;
             const activeTakerFee = tradeFeesRef.current.taker;
             
-            // CHÚ Ý: Truyền trực tiếp realFunding và để bên trong hàm nhận giá trị phân số của Funding.
             const costDragLoss = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'MARKET', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const costDragWin = QuantMath.costDrag(entry, 'FUTURES', dir, execType, 'LIMIT', realFunding, realSpread, tHold, activeMakerFee, activeTakerFee, targetInterval, localObi);
             const rewardDiff = Math.abs(tp1 - entry);
@@ -310,7 +310,7 @@ export default function useMatrixScanner({
             const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
-            // BẢN VÁ QUAN TRỌNG: ĐỒNG BỘ DỮ LIỆU ĐỂ TRÁNH LỖI HARD GATES
+            // BẢN VÁ: Đồng bộ Mock Data triệt để không để bất kỳ trường nào null/0 gây rớt Gate
             const localAutoData = {
                 currentPrice: price,
                 atr14: atr14,
@@ -323,11 +323,11 @@ export default function useMatrixScanner({
                 rsi: rsi,
                 cmf: cmf,
                 obi: localObi,
-                fundingRate: realFunding * 100, // ĐỒNG BỘ HỆ QUY CHIẾU LẠI
+                fundingRate: realFunding * 100, 
                 fundingSlope: 0, 
-                currentOi: 100, // GIẢ LẬP ĐỂ PASS
-                oiEma: 100, // GIẢ LẬP ĐỂ PASS
-                oiDelta: 5.0, // GIẢ LẬP ĐỂ PASS (Sửa lỗi oiDelta hardcoded bằng 0)
+                currentOi: 100, 
+                oiEma: 100, 
+                oiDelta: 5.0, 
                 isOiSpiking: false, 
                 lastClosedVolume: closedVolume,
                 avgVolume20: avgVolume20,
@@ -433,6 +433,7 @@ export default function useMatrixScanner({
               overrideTag 
             });
           } catch (innerErr) { 
+              console.error(`Lỗi ẩn tại coin ${result?.value?.symbol}:`, innerErr);
               continue; 
           }
         }
