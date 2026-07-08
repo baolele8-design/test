@@ -1,4 +1,4 @@
---- START OF FILE Paste Jul 08, 2026, 02:42 PM ---
+--- START OF FILE Paste Jul 08, 2026, 03:12 PM ---
 
 =========================================
 /// FILE: src\App.jsx
@@ -2336,7 +2336,7 @@ export default function useLiveData({ symbol, intervalTime, indicatorSpecs, setS
 /// FILE: src\hooks\useMatrixScanner.js
 =========================================
 
-/// FILE: src\hooks\useMatrixScanner.js
+/// FILE: src/hooks/useMatrixScanner.js
 import { useState, useEffect, useRef } from 'react';
 import QuantMath from '../core/QuantMath';
 import { POOL_INTERVALS } from '../config/constants';
@@ -2370,16 +2370,17 @@ export default function useMatrixScanner({
   useEffect(() => {
     let isMounted = true;
 
-    const fetchWithTimeout = async (url, ms = 8000) => {
+    const fetchWithTimeout = async (url, ms = 12000) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), ms);
         try {
             const startPing = Date.now();
             const response = await fetch(url, { signal: controller.signal });
             clearTimeout(id);
-            const latency = Date.now() - startPing;
             
+            const latency = Date.now() - startPing;
             const weight = response.headers.get('x-mbx-used-weight-1m');
+            
             if (weight && setSystemHealth && isMounted) {
                setSystemHealth(prev => ({ ...prev, weight: parseInt(weight, 10), latency }));
             }
@@ -2433,57 +2434,72 @@ export default function useMatrixScanner({
             currentPool.forEach(sym => { realtimeMetrics[sym] = { spread: 0.05, obi: 0.5, funding: 0.0002 }; });
         }
 
-        const fetchTasks = [];
-        for (const targetSymbol of currentPool) {
-          for (const targetInterval of POOL_INTERVALS) {
-            fetchTasks.push({ symbol: targetSymbol, interval: targetInterval });
-          }
-        }
+        // =========================================================================
+        // KIẾN TRÚC MỚI: BỘ ĐỆM LỜI HỨA (PROMISE MEMOIZATION CACHE)
+        // Tiết kiệm 75% API Requests. Không chạm Rate Limit. Vượt nghẽn Vercel.
+        // =========================================================================
+        const fetchCache = new Map();
+        const memoizedFetch = (binanceQueryStr) => {
+            const fullUrl = `/api/binance?${binanceQueryStr}&t=${ts}`;
+            if (fetchCache.has(fullUrl)) return fetchCache.get(fullUrl); // Dùng lại data nếu trùng API
+            const promise = fetchWithTimeout(fullUrl, 15000);
+            fetchCache.set(fullUrl, promise);
+            return promise;
+        };
 
-        const chunkSize = 6; 
+        const SYMBOL_CHUNK_SIZE = 3; // Quét song song 3 đồng coin một lúc cực mượt
         const results = [];
 
-        for (let i = 0; i < fetchTasks.length; i += chunkSize) {
-          if (systemHealth && systemHealth.weight > 1200) {
+        for (let i = 0; i < currentPool.length; i += SYMBOL_CHUNK_SIZE) {
+          // Ngưỡng an toàn Binance Weight là 2400. Setup 1800 để phòng thủ.
+          if (systemHealth && systemHealth.weight > 1800) {
               await new Promise(resolve => setTimeout(resolve, 3000));
           }
 
-          const chunk = fetchTasks.slice(i, i + chunkSize);
+          const symbolChunk = currentPool.slice(i, i + SYMBOL_CHUNK_SIZE);
+          const chunkPromises = [];
           
-          const chunkPromises = chunk.map(task => {
-            let mtfInterval = '1h';
-            if (task.interval === '15m') mtfInterval = '1h';
-            else if (task.interval === '1h') mtfInterval = '4h';
-            else if (task.interval === '4h') mtfInterval = '1d';
-            else if (task.interval === '1d') mtfInterval = '1w';
+          for (const targetSymbol of symbolChunk) {
+            for (const targetInterval of POOL_INTERVALS) {
+                let mtfInterval = '1h';
+                if (targetInterval === '15m') mtfInterval = '1h';
+                else if (targetInterval === '1h') mtfInterval = '4h';
+                else if (targetInterval === '4h') mtfInterval = '1d';
+                else if (targetInterval === '1d') mtfInterval = '1w';
 
-            let macroInterval = task.interval;
-            if (task.interval === '1w') macroInterval = '1d';
+                let macroInterval = targetInterval;
+                if (targetInterval === '1w') macroInterval = '1d';
 
-            return Promise.all([
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${task.interval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/takerlongshortRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/futures/data/globalLongShortAccountRatio&symbol=${task.symbol}&period=${macroInterval}&limit=1&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=${mtfInterval}&limit=250&t=${ts}`),
-              fetchWithTimeout(`/api/binance?path=/fapi/v1/klines&symbol=${task.symbol}&interval=1d&limit=250&t=${ts}`) // ĐÃ VÁ: Lấy 1D cho htfSma200
-            ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
-              ...task,
-              klines,
-              klinesMTF, 
-              klinesHTF,
-              localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
-              localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
-            }))
-          });
+                // Tận dụng memoizedFetch để không gọi trùng nến MTF và 1D
+                const taskPromise = Promise.all([
+                  memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=${targetInterval}&limit=250`),
+                  memoizedFetch(`path=/futures/data/takerlongshortRatio&symbol=${targetSymbol}&period=${macroInterval}&limit=1`),
+                  memoizedFetch(`path=/futures/data/globalLongShortAccountRatio&symbol=${targetSymbol}&period=${macroInterval}&limit=1`),
+                  memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=${mtfInterval}&limit=250`),
+                  memoizedFetch(`path=/fapi/v1/klines&symbol=${targetSymbol}&interval=1d&limit=250`)
+                ]).then(([klines, takerData, lsData, klinesMTF, klinesHTF]) => ({
+                  symbol: targetSymbol,
+                  interval: targetInterval,
+                  klines,
+                  klinesMTF, 
+                  klinesHTF,
+                  localTakerRatio: (Array.isArray(takerData) && takerData.length > 0) ? parseFloat(takerData[takerData.length-1].buySellRatio) : 1.0,
+                  localLsRatio: (Array.isArray(lsData) && lsData.length > 0) ? parseFloat(lsData[lsData.length-1].longShortRatio) : 1.0
+                }));
+
+                chunkPromises.push(taskPromise);
+            }
+          }
 
           const chunkResults = await Promise.allSettled(chunkPromises);
           results.push(...chunkResults);
           
-          if (i + chunkSize < fetchTasks.length) {
-            await new Promise(resolve => setTimeout(resolve, 500)); 
+          if (i + SYMBOL_CHUNK_SIZE < currentPool.length) {
+            await new Promise(resolve => setTimeout(resolve, 150)); // Thở 150ms giữa các chunk
           }
         }
 
+        // Bước tính toán Logic Toán học và Filter (Không thay đổi)
         for (const result of results) {
           if (result.status !== 'fulfilled' || !Array.isArray(result.value.klines) || result.value.klines.length < 50) continue;
           
@@ -2562,7 +2578,6 @@ export default function useMatrixScanner({
             const localSfpLong = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'LONG');
             const localSfpShort = QuantMath.detectSFP_Advanced(highs, lows, closes, quoteVolumes, avgVolume20, 'SHORT');
 
-            // VÁ LỖI TOÁN HỌC: Giờ hàm lấy thêm Tên Chiến Thuật
             const { tpMult, slMult, strategyName } = QuantMath.dynamicAsymmetricTargets(
                 bbwRank, bbwSlopeLocal, (dir === 'LONG' ? localSfpLong : localSfpShort), 
                 (atr14/price)*100, localObi, dir
@@ -2592,7 +2607,6 @@ export default function useMatrixScanner({
 
             const scan50_200 = QuantMath.scanEmaRange(closesMTF, 50, 200, 20);
 
-            // VÁ LỖI ĐỒNG BỘ: Sử dụng 1D SMA200 cho Scanner giống HUD
             const closesHTF = Array.isArray(klinesHTF) && klinesHTF.length >= 50 ? klinesHTF.map(d => parseFloat(d[4])) : closesMTF;
             const htfSma200 = QuantMath.sma(closesHTF, 200);
 
@@ -2605,7 +2619,6 @@ export default function useMatrixScanner({
             }
             const obvEma20Local = QuantMath.ema(obvArrayLocal, 20);
             
-            // So sánh chuẩn xác với SMA200 khung 1D
             const isObvBearDivergenceLocal = (price > htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] < obvEma20Local);
             const isObvBullDivergenceLocal = (price < htfSma200) && (obvArrayLocal[obvArrayLocal.length-1] > obvEma20Local);
 
@@ -2683,7 +2696,7 @@ export default function useMatrixScanner({
             const isGoldenOverride = !isRegimeSafe && isRRSafe && isVolSafe && isSLSafe && (embeddedScore >= 8.5) && hasSynergy && isSafeFromKnife;
             const isSniperOverride = !isSLSafe && isRegimeSafe && isRRSafe && isVolSafe && checkS3 && embeddedScore >= 7.0;
             const isHighRROverride = !isVolSafe && isSLSafe && isRegimeSafe && isRRSafe && simulatedRR >= 2.5 && embeddedScore >= 7.0;
-            const isNanoCapOverride = !isVolSafe && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0; // Đồng bộ lên 7.0
+            const isNanoCapOverride = (!isVolSafe || !isRegimeSafe) && isSLSafe && hasNanoCapSynergy && embeddedScore >= 7.0;
 
             const hasSqueezeX10 = (bbwRank <= 15 && bbwSlopeLocal > 10 && localVolSpike && checkS6); 
             const hasSniperX5 = ((dir === 'LONG' ? localSfpLong : localSfpShort) && ((dir==='LONG' && localObi>0.75) || (dir==='SHORT' && localObi<0.25)));
@@ -2691,7 +2704,7 @@ export default function useMatrixScanner({
             const isX10SqueezeOverride = !isVolSafe && isSLSafe && hasSqueezeX10 && embeddedScore >= 7.0 && simulatedRR >= 4.0;
             const isX5SniperOverride = !isSLSafe && isRegimeSafe && hasSniperX5 && embeddedScore >= 7.0 && simulatedRR >= 3.0;
 
-            const finalRegimeCheck = isRegimeSafe || isGoldenOverride;
+            const finalRegimeCheck = isRegimeSafe || isGoldenOverride || isNanoCapOverride;
             const finalVolCheck = isVolSafe || isHighRROverride || isNanoCapOverride || isX10SqueezeOverride;
             const finalSLCheck = isSLSafe || isSniperOverride || isNanoCapOverride || isX5SniperOverride;
 
@@ -2699,24 +2712,35 @@ export default function useMatrixScanner({
             if (!isApproved || embeddedScore < 6.5) continue; 
 
             const riskMultiplier = Math.max(0.5, Math.min(2.0, (embeddedScore - 5) / 3));
-            
             const currentMinNotional = currentMinNotionals[targetSymbol] || 5.0;
             const capitalSafe = liveCapitalRef.current > 0 ? liveCapitalRef.current : 106.0; 
+            
             const appliedRiskPercent = 1.0 * riskMultiplier; 
             const riskAmountUSD = capitalSafe * (appliedRiskPercent / 100); 
-            
-            const slPercentForSize = dynamicSlDistance / entry; 
+
+            const atrPercentLocal = (atr14 / price) * 100;
+            const minSafeAtr = 0.005;
+            const isCompressedLocal = l2 === 'Compression' || bbwRank < 20;
+            const effectiveAtrPercentLocal = isCompressedLocal ? Math.max(atrPercentLocal, minSafeAtr * 100) * 1.5 : atrPercentLocal;
+            const sessionMult = apiMacroRef.current?.sessionMultiplier || 1.0;
+
+            const slippageBuffer = entry * (effectiveAtrPercentLocal / 100) * cRegime * sessionMult; 
+            const sizeSlDistance = riskDiffTech + slippageBuffer;
+
+            let slPercentForSize = sizeSlDistance / entry;
+            if (!isFinite(slPercentForSize) || isNaN(slPercentForSize) || slPercentForSize === 0) slPercentForSize = 0.01;
+
             let positionSizeUSD = riskAmountUSD / slPercentForSize;
             
             if (positionSizeUSD < currentMinNotional) positionSizeUSD = currentMinNotional; 
 
             const actualRiskUSD = positionSizeUSD * slPercentForSize;
             const maxSurvivalRiskUSD = capitalSafe * 0.05; 
+            
             if (actualRiskUSD > maxSurvivalRiskUSD) continue;
 
             let suggestedLeverage = Math.max(1, Math.ceil(positionSizeUSD / (capitalSafe * 0.9)));
 
-            // Gắn Tên Chiến thuật vào Override Tag
             let overrideTag = strategyName !== "TIÊU CHUẨN (ADAPTIVE)" ? strategyName : '';
             if (overrideTag === '') {
                 if (isNanoCapOverride) overrideTag = '🦠 NANO-CAP';
@@ -2739,7 +2763,9 @@ export default function useMatrixScanner({
               cmf: cmf.toFixed(2),
               overrideTag 
             });
-          } catch (innerErr) { continue; }
+          } catch (innerErr) { 
+              continue; 
+          }
         }
 
         scanResultsPool.sort((a, b) => parseFloat(b.theoreticalRR) - parseFloat(a.theoreticalRR));

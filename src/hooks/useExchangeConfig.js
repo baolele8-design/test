@@ -5,8 +5,6 @@ import { POOL_SYMBOLS, MIN_NOTIONALS } from '../config/constants';
 export default function useExchangeConfig() {
   const [dynamicMinNotionals, setDynamicMinNotionals] = useState(MIN_NOTIONALS);
   const [dynamicPool, setDynamicPool] = useState(POOL_SYMBOLS);
-  
-  // Thêm 2 state để lấy độ chính xác thập phân của sàn
   const [stepSizes, setStepSizes] = useState({});
   const [tickSizes, setTickSizes] = useState({});
 
@@ -15,11 +13,9 @@ export default function useExchangeConfig() {
     const fetchExchangeData = async () => {
       try {
         const ts = Date.now();
-        // 1. Fetch Min Notional, Step Size, Tick Size trực tiếp từ Binance
         const exRes = await fetch(`/api/binance?path=/fapi/v1/exchangeInfo&t=${ts}`);
         const exData = await exRes.json();
 
-        // 2. Fetch Ticker 24h để tìm Coin đang biến động mạnh
         const tickerRes = await fetch(`/api/binance?path=/fapi/v1/ticker/24hr&t=${ts}`);
         const tickerData = await tickerRes.json();
 
@@ -41,7 +37,7 @@ export default function useExchangeConfig() {
         });
 
         const validTickers = tickerData
-          .filter(t => t.symbol.endsWith('USDT') && !POOL_SYMBOLS.includes(t.symbol) && parseFloat(t.quoteVolume) > 50000000)
+          .filter(t => t.symbol.endsWith('USDT') && !POOL_SYMBOLS.includes(t.symbol) && parseFloat(t.quoteVolume) > 30000000)
           .sort((a, b) => Math.abs(parseFloat(b.priceChangePercent)) - Math.abs(parseFloat(a.priceChangePercent)));
         
         const topVolatileCoins = validTickers.slice(0, 15).map(t => t.symbol);
@@ -57,7 +53,7 @@ export default function useExchangeConfig() {
     };
 
     fetchExchangeData();
-    const timer = setInterval(fetchExchangeData, 14400000); // 4 tiếng cập nhật 1 lần
+    const timer = setInterval(fetchExchangeData, 600000); // ĐÃ FIX: 10 phút cập nhật dòng tiền 1 lần
     return () => { isMounted = false; clearInterval(timer); };
   }, []);
 
