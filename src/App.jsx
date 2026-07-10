@@ -389,10 +389,23 @@ BẤT DI BẤT DỊCH:
         status: 'PENDING', 
         pnl_usd: 0, 
         session: apiMacro.tradingSession, 
-        market_regime: vectorRegime.vector.join(' | '), 
+        market_regime: vectorRegime.vector.join(' | '),  // giữ lại cho AI prompt / hiển thị UI
+        l1_structure: vectorRegime.details.l1,
+        l2_volatility: vectorRegime.details.l2,
+        l3_liq_event: vectorRegime.details.l3,
+        l4_positioning: vectorRegime.details.l4,
+        l5_momentum: vectorRegime.details.l5,
+        l6_macro: vectorRegime.details.l6,
         ai_advice: aiAnalysis ? aiAnalysis.substring(0, 3000) : null, 
         soft_score: parseFloat(logicGates.softScore), 
         holding_cycles: 1, 
+        strategy_name: tradeSetup.activeStrategy || 'TIÊU CHUẨN (ADAPTIVE)',
+        override_tag: logicGates.isNanoOverride ? 'NANO-CAP'
+                    : logicGates.isSniperOverride ? 'SNIPER'
+                    : logicGates.isHighRROverride ? 'ASYM-RR'
+                    : logicGates.isGoldenOverride ? 'GOLDEN' : null,
+        capital_at_entry_usd: liveCapital,
+        gate_checks: systemScore.checks,
         applied_risk_pct: parseFloat(mathCore.appliedRiskPercent),
         
         meta_data: fullSystemContext // JSON Rác đã được nén tối đa
