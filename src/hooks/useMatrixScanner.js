@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../services/supabase';
 
-export default function useMatrixScanner({ showToast, sonarEnabled }) {
+export default function useMatrixScanner({ showToast }) {
+  // Đã khôi phục lại 2 biến quản lý state của Sonar
   const [scannedTopSetups, setScannedTopSetups] = useState([]);
   const [isScanningBackground, setIsScanningBackground] = useState(true);
+  const [sonarEnabled, setSonarEnabled] = useState(false); 
 
   useEffect(() => {
     let isMounted = true;
@@ -38,7 +40,7 @@ export default function useMatrixScanner({ showToast, sonarEnabled }) {
     // Lấy dữ liệu lần đầu
     fetchSignals();
 
-    // Subscribe nhận tín hiệu Realtime từ Local Daemon gửi lên[cite: 6]
+    // Subscribe nhận tín hiệu Realtime từ Local Daemon gửi lên
     const subscription = supabase.channel('public:matrix_signals')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matrix_signals' }, (payload) => {
           fetchSignals(); 
